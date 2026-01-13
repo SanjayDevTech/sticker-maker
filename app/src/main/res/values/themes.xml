@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Compose draws everything; this only sets the window colour so a cold start or a
+         screen transition never flashes a mismatched background behind the first frame. -->
+    <style name="Theme.StickerMaker" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
 
-    <style name="Theme.StickerMaker" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Launcher theme. installSplashScreen() swaps to postSplashScreenTheme in onCreate. -->
+    <style name="Theme.StickerMaker.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/lavender</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.StickerMaker</item>
+    </style>
 </resources>

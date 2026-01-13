@@ -1,0 +1,90 @@
+package com.example.stickermaker.ui.components
+
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import com.example.stickermaker.ui.theme.LocalReduceMotion
+import com.example.stickermaker.ui.theme.Motion
+import kotlinx.coroutines.delay
+
+/**
+ * First-appearance entrance: the item drops in, slightly tilted, and lands with a bounce,
+ * [index] steps after the previous one. Plays once per item — the "played" flag is saveable,
+ * so scrolling a lazy list back or returning to the screen doesn't replay it.
+ */
+@Composable
+fun Modifier.staggeredEntrance(index: Int): Modifier {
+    if (LocalReduceMotion.current) return this
+    var played by rememberSaveable { mutableStateOf(false) }
+    val progress = remember { Animatable(if (played) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (played) return@LaunchedEffect
+        delay(index.coerceAtMost(Motion.STAGGER_MAX_ITEMS) * Motion.STAGGER_MS.toLong())
+        progress.animateTo(1f, Motion.spatialBouncy())
+        played = true
+    }
+    val tilt = if (index % 2 == 0) -2.5f else 2.5f
+    return graphicsLayer {
+        val p = progress.value
+        alpha = p.coerceIn(0f, 1f)
+        translationY = (1f - p) * 28.dp.toPx()
+        rotationZ = (1f - p) * tilt
+    }
+}
+
+/** Squash-on-press for tappables that aren't brutal blocks (those sink instead). */
+@Composable
+fun Modifier.pressScale(interactionSource: InteractionSource, pressedScale: Float = 0.92f): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = if (pressed) Motion.pressDown() else Motion.pressRelease(),
+        label = "pressScale",
+    )
+    return graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+/** Set by AppNavigation around the NavDisplay; null in previews. */
+val LocalSharedTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
+
+/**
+ * Container transform between screens: give the source (e.g. a card) and the destination
+ * (e.g. the next screen's header) the same [key] and the block morphs across the transition.
+ * No-op outside a navigation transition (previews).
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.sharedBlock(key: Any): Modifier {
+    val shared = LocalSharedTransitionScope.current ?: return this
+    val animatedScope = LocalNavAnimatedContentScope.current
+    return with(shared) {
+        this@sharedBlock.sharedBounds(
+            sharedContentState = rememberSharedContentState(key),
+            animatedVisibilityScope = animatedScope,
+            boundsTransform = BlockBoundsTransform,
+            resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
+        )
+    }
+}
+
+private val BlockBoundsTransform = BoundsTransform { _, _ -> tween(Motion.NAV_MS, easing = Motion.Emphasized) }
