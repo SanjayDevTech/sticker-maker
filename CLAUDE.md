@@ -49,6 +49,10 @@ go bold: big buttons, squiggly edges and stickers slapped on things are all welc
   `StickerSnackbarHost` and `SquigglyShape`.
 - Hard shadows paint outside bounds. Give containers end/bottom padding of at least the
   shadow size (lists use `end = ScreenGutter + ShadowL`).
+- Never fade a brutal component with a plain `graphicsLayer { alpha = … }`. Alpha < 1 renders
+  offscreen, clipped to the bounds, and that cuts off the shadow. Set
+  `compositingStrategy = CompositingStrategy.ModulateAlpha`, and drive alpha from a
+  non-overshooting spec (`Motion.effects*`), never a bouncy one.
 - Icons are Material Symbols Rounded (weight 600, filled) as vector XML in `res/drawable`.
   Fetch new ones from `google/material-design-icons` (`symbols/android/<name>/materialsymbolsrounded/<name>_wght600fill1_24px.xml`)
   and strip the `android:tint="?attr/colorControlNormal"` line.

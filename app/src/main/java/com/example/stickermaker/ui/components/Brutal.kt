@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.addOutline
@@ -132,17 +133,25 @@ fun BrutalSurface(
     }
 
     val inkShadow = AppTheme.colors.ink
+    // Disabled = flat (no shadow, nothing to press into) and faded. ModulateAlpha fades
+    // without an offscreen buffer, which would clip anything drawn outside the bounds.
+    val effectiveShadow = if (enabled) shadow else 0.dp
     Box(
         modifier = modifier
-            .graphicsLayer { alpha = if (enabled) 1f else 0.45f }
-            .brutalShadow(shape, shadow, inkShadow)
+            .graphicsLayer {
+                if (!enabled) {
+                    alpha = 0.45f
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                }
+            }
+            .brutalShadow(shape, effectiveShadow, inkShadow)
             .then(clickModifier),
         propagateMinConstraints = true,
     ) {
         Box(
             modifier = Modifier
                 .graphicsLayer {
-                    val dx = shadow.toPx() * press.value
+                    val dx = effectiveShadow.toPx() * press.value
                     translationX = dx
                     translationY = dx
                 }
