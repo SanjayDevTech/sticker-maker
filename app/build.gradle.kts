@@ -85,3 +85,12 @@ dependencies {
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+// Compose compiler stability/skippability reports — opt in per run:
+//   ./gradlew :app:assembleRelease -PcomposeReports
+if (providers.gradleProperty("composeReports").isPresent) {
+    composeCompiler {
+        reportsDestination = layout.buildDirectory.dir("compose_compiler")
+        metricsDestination = layout.buildDirectory.dir("compose_compiler")
+    }
+}

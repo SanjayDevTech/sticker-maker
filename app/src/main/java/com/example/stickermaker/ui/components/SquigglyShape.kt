@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableFloatStateOf
@@ -81,8 +82,44 @@ data class SquigglyShape(
 }
 
 /**
- * 0→1 looping phase for [SquigglyShape.phase]. Frozen at 0 when the user turned animations
- * off. Read it as late as possible (inside the shape) to keep recomposition local.
+ * A [SquigglyShape] whose phase comes from [phase] and is read when the outline is built —
+ * in the draw phase (drawWithCache) or the layer phase (graphicsLayer), never in composition.
+ * Those callers observe the read and refresh by themselves, so a wobbling edge costs zero
+ * recompositions. The last outline is cached, so the several modifiers sharing this shape
+ * build the path once per frame.
+ */
+@Stable
+class WobblingShape(private val base: SquigglyShape, private val phase: State<Float>) : Shape {
+    private var lastSize = Size.Unspecified
+    private var lastPhase = Float.NaN
+    private var lastDensity = Float.NaN
+    private var lastOutline: Outline? = null
+
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val p = phase.value
+        lastOutline?.let { cached ->
+            if (size == lastSize && p == lastPhase && density.density == lastDensity) return cached
+        }
+        return base.copy(phase = p).createOutline(size, layoutDirection, density).also {
+            lastSize = size; lastPhase = p; lastDensity = density.density; lastOutline = it
+        }
+    }
+
+    /**
+     * For `graphicsLayer { shape = … }`: a new value per phase (so the layer re-clips), reading
+     * the phase inside the layer block (so the block re-runs), delegating to the shared cache.
+     */
+    fun snapshot(): Shape = Snapshot(this, phase.value)
+
+    private data class Snapshot(val owner: WobblingShape, val phase: Float) : Shape {
+        override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+            owner.createOutline(size, layoutDirection, density)
+    }
+}
+
+/**
+ * 0→1 looping phase for [WobblingShape]. Frozen at 0 when the user turned animations off.
+ * Hand the State itself to [WobblingShape]; never read `.value` in composition.
  */
 @Composable
 fun rememberWobblePhase(periodMillis: Int = 2600): State<Float> {

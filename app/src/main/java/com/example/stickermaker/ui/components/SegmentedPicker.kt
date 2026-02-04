@@ -17,15 +17,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
@@ -80,7 +81,7 @@ fun <T> SegmentedPicker(
             Row(Modifier.fillMaxWidth().fillMaxHeight().selectableGroup()) {
                 options.forEach { option ->
                     val isSelected = option == selected
-                    val textColor by animateColorAsState(
+                    val textColor = animateColorAsState(
                         if (isSelected) colors.onBlock else colors.ink,
                         Motion.effects(),
                         label = "segmentText",
@@ -99,15 +100,19 @@ fun <T> SegmentedPicker(
                         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // The animated colour is read only while drawing (icon) and via
+                        // BasicText's ColorProducer (label): the switch never recomposes.
                         if (icon != null) {
-                            Icon(
-                                painterResource(icon(option)),
-                                contentDescription = null,
-                                tint = textColor,
-                                modifier = Modifier.size(18.dp),
+                            val painter = painterResource(icon(option))
+                            Box(
+                                Modifier
+                                    .size(18.dp)
+                                    .drawBehind {
+                                        with(painter) { draw(size, colorFilter = ColorFilter.tint(textColor.value)) }
+                                    },
                             )
                         }
-                        Text(label(option), style = MaterialTheme.typography.labelMedium, color = textColor)
+                        BasicText(label(option), style = MaterialTheme.typography.labelMedium, color = { textColor.value })
                     }
                 }
             }

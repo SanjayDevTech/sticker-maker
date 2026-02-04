@@ -2,6 +2,9 @@ package com.example.stickermaker.baselineprofile
 
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Direction
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,7 +30,29 @@ class BaselineProfileGenerator {
     ) {
         pressHome()
         startActivityAndWait()
-        // Add critical journeys here as screens are built (scroll the home list,
-        // open the editor, …) — anything not exercised runs interpreted/JIT.
+        // Beyond startup, walk the screens so navigation transitions, the shared-element
+        // morph, the bottom sheet and list scrolling/animations ship pre-compiled too.
+        // Extend as real screens land — anything not exercised runs interpreted/JIT.
+        device.findObject(By.text("Start something")).click()
+        device.wait(Until.hasObject(By.text("A photo")), 3_000)
+        device.pressBack()
+        device.waitForIdle()
+
+        device.findObject(By.desc("Settings")).click()
+        device.wait(Until.hasObject(By.text("Design kit")), 3_000)
+        device.findObject(By.text("Design kit")).click()
+        device.wait(Until.hasObject(By.text("Buttons")), 3_000)
+        val list = device.findObject(By.scrollable(true))
+        list.setGestureMargin(device.displayWidth / 5)
+        repeat(2) {
+            list.fling(Direction.DOWN)
+            device.waitForIdle()
+        }
+        list.fling(Direction.UP)
+        device.waitForIdle()
+        device.pressBack()
+        device.waitForIdle()
+        device.pressBack()
+        device.waitForIdle()
     }
 }

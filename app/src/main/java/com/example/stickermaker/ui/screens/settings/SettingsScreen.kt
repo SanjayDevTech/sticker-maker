@@ -2,14 +2,13 @@ package com.example.stickermaker.ui.screens.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -65,87 +64,81 @@ private fun SettingsContent(
     onThemeMode: (ThemeMode) -> Unit,
     onOpenDesignKit: () -> Unit,
 ) {
-    val listState = rememberLazyListState()
+    // Small, fixed content: a scrolling Column, not a lazy list (Compose guidance for ~1–10 items).
+    val scrollState = rememberScrollState()
     Scaffold(
         containerColor = AppTheme.colors.canvas,
         topBar = {
             StickerTopBar(
                 title = "Settings",
-                collapsed = rememberCollapsed(listState),
+                collapsed = rememberCollapsed(scrollState),
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
             )
         },
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = Dimens.ScreenGutter,
-                end = Dimens.ScreenGutter + Dimens.ShadowL,
-                top = padding.calculateTopPadding() + Dimens.Space8,
-                bottom = padding.calculateBottomPadding() + Dimens.Space48,
-            ),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(
+                    start = Dimens.ScreenGutter,
+                    end = Dimens.ScreenGutter + Dimens.ShadowL,
+                    top = padding.calculateTopPadding() + Dimens.Space8,
+                    bottom = padding.calculateBottomPadding() + Dimens.Space48,
+                ),
             verticalArrangement = Arrangement.spacedBy(Dimens.Space20),
         ) {
-            item(key = "headline") {
-                Text("Settings", style = MaterialTheme.typography.displayMedium)
-            }
-            item(key = "appearance-title") { SectionTitle("Appearance", Modifier.staggeredEntrance(0)) }
-            item(key = "appearance") {
-                StickerCard(Modifier.staggeredEntrance(1).fillMaxWidth()) {
-                    Text("Theme", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Dark is pure black, easy on OLED.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = AppTheme.colors.inkMuted,
-                    )
-                    SegmentedPicker(
-                        options = ThemeMode.entries,
-                        selected = state.themeMode,
-                        onSelect = onThemeMode,
-                        label = { it.name },
-                        icon = {
-                            when (it) {
-                                ThemeMode.System -> R.drawable.ic_contrast
-                                ThemeMode.Light -> R.drawable.ic_light_mode
-                                ThemeMode.Dark -> R.drawable.ic_dark_mode
-                            }
-                        },
-                        modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowS),
-                    )
-                }
-            }
-            item(key = "kit-title") { SectionTitle("Under the hood", Modifier.staggeredEntrance(2)) }
-            item(key = "kit") {
-                BrutalSurface(
-                    modifier = Modifier
-                        .staggeredEntrance(3)
-                        .sharedBlock(DESIGN_KIT_SHARED_KEY)
-                        .fillMaxWidth(),
-                    shape = Shapes.Large,
-                    color = Palette.Pink,
-                    onClick = onOpenDesignKit,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Dimens.Space16),
-                    ) {
-                        Icon(painterResource(R.drawable.ic_palette), null, Modifier.size(32.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Design kit", style = MaterialTheme.typography.titleLarge)
-                            Text("Every component, live.", style = MaterialTheme.typography.bodyMedium)
+            Text("Settings", style = MaterialTheme.typography.displayMedium)
+            SectionTitle("Appearance", Modifier.staggeredEntrance(0))
+            StickerCard(Modifier.staggeredEntrance(1).fillMaxWidth()) {
+                Text("Theme", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Dark is pure black, easy on OLED.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AppTheme.colors.inkMuted,
+                )
+                SegmentedPicker(
+                    options = ThemeMode.entries,
+                    selected = state.themeMode,
+                    onSelect = onThemeMode,
+                    label = { it.name },
+                    icon = {
+                        when (it) {
+                            ThemeMode.System -> R.drawable.ic_contrast
+                            ThemeMode.Light -> R.drawable.ic_light_mode
+                            ThemeMode.Dark -> R.drawable.ic_dark_mode
                         }
+                    },
+                    modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowS),
+                )
+            }
+            SectionTitle("Under the hood", Modifier.staggeredEntrance(2))
+            BrutalSurface(
+                modifier = Modifier
+                    .staggeredEntrance(3)
+                    .sharedBlock(DESIGN_KIT_SHARED_KEY)
+                    .fillMaxWidth(),
+                shape = Shapes.Large,
+                color = Palette.Pink,
+                onClick = onOpenDesignKit,
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.Space16),
+                ) {
+                    Icon(painterResource(R.drawable.ic_palette), null, Modifier.size(32.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Design kit", style = MaterialTheme.typography.titleLarge)
+                        Text("Every component, live.", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
-            item(key = "version") {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = Dimens.Space24),
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    StickerTag("v${rememberVersionName()}", Palette.Lime, rotation = 3f)
-                }
+            Row(
+                Modifier.fillMaxWidth().padding(top = Dimens.Space24),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                StickerTag("v${rememberVersionName()}", Palette.Lime, rotation = 3f)
             }
         }
     }

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,6 +88,16 @@ private fun CollapsedTitle(title: String, visible: Boolean, modifier: Modifier) 
     ) {
         Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
     }
+}
+
+/** [rememberCollapsed] for screens that scroll a plain Column. */
+@Composable
+fun rememberCollapsed(scrollState: ScrollState, thresholdDp: Int = 72): Boolean {
+    val threshold = with(LocalDensity.current) { thresholdDp.dp.roundToPx() }
+    val collapsed by remember(scrollState, threshold) {
+        derivedStateOf { scrollState.value > threshold }
+    }
+    return collapsed
 }
 
 /** True once the list has scrolled past its first ~[thresholdDp] of content. */

@@ -14,7 +14,6 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -138,25 +137,23 @@ fun BrutalSurface(
     val effectiveShadow = if (enabled) shadow else 0.dp
     Box(
         modifier = modifier
-            .graphicsLayer {
-                if (!enabled) {
-                    alpha = 0.45f
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                }
-            }
+            .then(if (enabled) Modifier else DisabledLayer)
             .brutalShadow(shape, effectiveShadow, inkShadow)
             .then(clickModifier),
         propagateMinConstraints = true,
     ) {
         Box(
+            // One layer: press offset (read here, in the layer phase — no recomposition) and
+            // the content clip. A wobbling shape re-clips per frame via its snapshot.
             modifier = Modifier
                 .graphicsLayer {
                     val dx = effectiveShadow.toPx() * press.value
                     translationX = dx
                     translationY = dx
+                    this.shape = (shape as? WobblingShape)?.snapshot() ?: shape
+                    clip = true
                 }
-                .brutal(shape = shape, fill = color, border = borderColor, borderWidth = borderWidth)
-                .clip(shape),
+                .brutal(shape = shape, fill = color, border = borderColor, borderWidth = borderWidth),
             propagateMinConstraints = propagateMinConstraints,
         ) {
             CompositionLocalProvider(LocalContentColor provides contentColor) {
@@ -164,4 +161,9 @@ fun BrutalSurface(
             }
         }
     }
+}
+
+private val DisabledLayer = Modifier.graphicsLayer {
+    alpha = 0.45f
+    compositingStrategy = CompositingStrategy.ModulateAlpha
 }

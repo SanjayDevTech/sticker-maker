@@ -10,7 +10,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,15 +52,13 @@ fun ChunkyButton(
         ChunkySize.Large -> MaterialTheme.typography.titleLarge
         ChunkySize.Hero -> MaterialTheme.typography.headlineSmall
     }
-    val shape: Shape = if (squiggly) {
-        if (wobble) {
-            val phase by rememberWobblePhase()
-            SquigglyShape(phase = phase)
-        } else {
-            SquigglyShape()
+    val shape: Shape = when {
+        !squiggly -> Shapes.Medium
+        wobble -> {
+            val phase = rememberWobblePhase()
+            remember(phase) { WobblingShape(SquigglyShape(), phase) }
         }
-    } else {
-        Shapes.Medium
+        else -> SquigglyShape()
     }
     BrutalSurface(
         modifier = modifier.defaultMinSize(minHeight = size.height),

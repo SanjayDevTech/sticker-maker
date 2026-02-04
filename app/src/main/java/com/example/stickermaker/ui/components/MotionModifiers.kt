@@ -4,10 +4,7 @@ import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.interaction.InteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,21 +53,6 @@ fun Modifier.staggeredEntrance(index: Int): Modifier {
         compositingStrategy = CompositingStrategy.ModulateAlpha
         translationY = (1f - p) * 28.dp.toPx()
         rotationZ = (1f - p) * tilt
-    }
-}
-
-/** Squash-on-press for tappables that aren't brutal blocks (those sink instead). */
-@Composable
-fun Modifier.pressScale(interactionSource: InteractionSource, pressedScale: Float = 0.92f): Modifier {
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) pressedScale else 1f,
-        animationSpec = if (pressed) Motion.pressDown() else Motion.pressRelease(),
-        label = "pressScale",
-    )
-    return graphicsLayer {
-        scaleX = scale
-        scaleY = scale
     }
 }
 
