@@ -17,11 +17,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,7 +41,8 @@ import com.example.stickermaker.ui.components.SectionTitle
 import com.example.stickermaker.ui.components.SegmentedPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerCard
-import com.example.stickermaker.ui.components.StickerSnackbarHost
+import com.example.stickermaker.ui.components.ToastHost
+import com.example.stickermaker.ui.components.rememberToastState
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
 import com.example.stickermaker.ui.components.rememberCollapsed
@@ -65,13 +66,15 @@ private val DemoItems = listOf("Grumpy cat", "Pizza slice", "Big NOPE", "Tiny ca
 @Composable
 fun DesignKitScreen(onBack: () -> Unit) {
     val listState = rememberLazyListState()
-    val snackbar = remember { SnackbarHostState() }
+    val toasts = rememberToastState()
+    var toastCount by rememberSaveable { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val items = remember { mutableStateListOf(*DemoItems.toTypedArray()) }
     var segment by rememberSaveable { mutableStateOf("Likes") }
+    val colors = AppTheme.colors // read once, not per lazy item
 
     Scaffold(
-        containerColor = AppTheme.colors.canvas,
+        containerColor = colors.canvas,
         topBar = {
             StickerTopBar(
                 title = "Design kit",
@@ -79,7 +82,7 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
             )
         },
-        snackbarHost = { StickerSnackbarHost(snackbar) },
+        snackbarHost = { ToastHost(toasts) },
     ) { padding ->
         LazyColumn(
             state = listState,
@@ -92,7 +95,7 @@ fun DesignKitScreen(onBack: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(Dimens.Space20),
         ) {
-            item(key = "header") {
+            item(key = "header", contentType = "demo-block") {
                 // Same shared key as the Settings row: the pink block morphs into this header.
                 BrutalSurface(
                     modifier = Modifier
@@ -110,8 +113,8 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
 
-            item(key = "buttons-title") { SectionTitle("Buttons", Modifier.staggeredEntrance(0)) }
-            item(key = "buttons") {
+            item(key = "buttons-title", contentType = "section-title") { SectionTitle("Buttons", Modifier.staggeredEntrance(0)) }
+            item(key = "buttons", contentType = "demo-block") {
                 Column(
                     Modifier.staggeredEntrance(1),
                     verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
@@ -135,8 +138,8 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
 
-            item(key = "picker-title") { SectionTitle("Picker", Modifier.staggeredEntrance(2)) }
-            item(key = "picker") {
+            item(key = "picker-title", contentType = "section-title") { SectionTitle("Picker", Modifier.staggeredEntrance(2)) }
+            item(key = "picker", contentType = "demo-block") {
                 SegmentedPicker(
                     options = listOf("Likes", "Matches", "Dates"),
                     selected = segment,
@@ -146,15 +149,15 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 )
             }
 
-            item(key = "blocks-title") { SectionTitle("Blocks & tags", Modifier.staggeredEntrance(4)) }
-            item(key = "blocks") {
+            item(key = "blocks-title", contentType = "section-title") { SectionTitle("Blocks & tags", Modifier.staggeredEntrance(4)) }
+            item(key = "blocks", contentType = "demo-block") {
                 FlowRow(
                     modifier = Modifier.staggeredEntrance(5),
                     horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
                     verticalArrangement = Arrangement.spacedBy(Dimens.Space12),
                     maxItemsInEachRow = 3,
                 ) {
-                    AppTheme.colors.blocks.forEachIndexed { i, color ->
+                    colors.blocks.forEachIndexed { i, color ->
                         StickerCard(
                             modifier = Modifier
                                 .weight(1f)
@@ -170,7 +173,7 @@ fun DesignKitScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            item(key = "tags") {
+            item(key = "tags", contentType = "demo-block") {
                 Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
                     StickerTag("new", Palette.Yellow)
                     StickerTag("hot", Palette.Coral, rotation = 3f)
@@ -178,13 +181,34 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
 
-            item(key = "undo-title") { SectionTitle("Remove + undo", Modifier.padding(top = Dimens.Space8)) }
-            items(items, key = { it.id }) { item ->
+            item(key = "toasts-title", contentType = "section-title") { SectionTitle("Toasts", Modifier.padding(top = Dimens.Space8)) }
+            item(key = "toasts", contentType = "demo-block") {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space8)) {
+                    Text(
+                        "Swipe left or right to clear. Three count down at once; the next one peeks out from behind, the rest wait hidden.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.inkMuted,
+                    )
+                    ChunkyButton(
+                        "Pop a toast",
+                        onClick = {
+                            val n = ++toastCount
+                            scope.launch { toasts.show("Toast #$n — swipe me away") }
+                        },
+                        icon = R.drawable.ic_bolt,
+                        size = ChunkySize.Medium,
+                        color = Palette.Yellow,
+                    )
+                }
+            }
+
+            item(key = "undo-title", contentType = "section-title") { SectionTitle("Remove + undo", Modifier.padding(top = Dimens.Space8)) }
+            items(items, key = { it.id }, contentType = { "demo-row" }) { item ->
                 BrutalSurface(
                     modifier = Modifier
                         .animateItem()
                         .fillMaxWidth(),
-                    color = AppTheme.colors.block(item.id),
+                    color = colors.block(item.id),
                     shadow = Dimens.ShadowS,
                 ) {
                     Row(
@@ -199,7 +223,7 @@ fun DesignKitScreen(onBack: () -> Unit) {
                                 val index = items.indexOf(item)
                                 items.remove(item)
                                 scope.launch {
-                                    if (snackbar.showUndo("${item.name} removed")) {
+                                    if (toasts.showUndo("${item.name} removed")) {
                                         items.add(index.coerceAtMost(items.size), item)
                                     }
                                 }
@@ -210,7 +234,7 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
             if (items.isEmpty()) {
-                item(key = "undo-empty") {
+                item(key = "undo-empty", contentType = "demo-block") {
                     ChunkyButton(
                         "Bring them back",
                         onClick = { items.addAll(DemoItems) },
@@ -221,8 +245,8 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
 
-            item(key = "loading-title") { SectionTitle("Loading", Modifier.padding(top = Dimens.Space8)) }
-            item(key = "loading") {
+            item(key = "loading-title", contentType = "section-title") { SectionTitle("Loading", Modifier.padding(top = Dimens.Space8)) }
+            item(key = "loading", contentType = "demo-block") {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
                     SkeletonBlock(Modifier.fillMaxWidth().height(72.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -232,8 +256,8 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
 
-            item(key = "empty-title") { SectionTitle("Empty state", Modifier.padding(top = Dimens.Space8)) }
-            item(key = "empty") {
+            item(key = "empty-title", contentType = "section-title") { SectionTitle("Empty state", Modifier.padding(top = Dimens.Space8)) }
+            item(key = "empty", contentType = "demo-block") {
                 EmptyState(
                     icon = R.drawable.ic_image,
                     title = "No stickers yet",

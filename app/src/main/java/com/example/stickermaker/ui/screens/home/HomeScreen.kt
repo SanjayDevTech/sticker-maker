@@ -14,12 +14,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -37,7 +35,8 @@ import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.SectionTitle
 import com.example.stickermaker.ui.components.StickerBottomSheet
 import com.example.stickermaker.ui.components.StickerCard
-import com.example.stickermaker.ui.components.StickerSnackbarHost
+import com.example.stickermaker.ui.components.ToastHost
+import com.example.stickermaker.ui.components.rememberToastState
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
 import com.example.stickermaker.ui.components.rememberCollapsed
@@ -52,7 +51,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(onOpenSettings: () -> Unit) {
     val listState = rememberLazyListState()
-    val snackbar = remember { SnackbarHostState() }
+    val toasts = rememberToastState()
     val scope = rememberCoroutineScope()
     var showStartSheet by rememberSaveable { mutableStateOf(false) }
 
@@ -67,7 +66,7 @@ fun HomeScreen(onOpenSettings: () -> Unit) {
                 },
             )
         },
-        snackbarHost = { StickerSnackbarHost(snackbar) },
+        snackbarHost = { ToastHost(toasts) },
     ) { padding ->
         LazyColumn(
             state = listState,
@@ -80,7 +79,7 @@ fun HomeScreen(onOpenSettings: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(Dimens.Space24),
         ) {
-            item(key = "headline") {
+            item(key = "headline", contentType = "headline") {
                 Box(Modifier.fillMaxWidth()) {
                     Text("Make it\nstick.", style = MaterialTheme.typography.displayLarge)
                     StickerTag(
@@ -93,7 +92,7 @@ fun HomeScreen(onOpenSettings: () -> Unit) {
                     )
                 }
             }
-            item(key = "hero") {
+            item(key = "hero", contentType = "card") {
                 StickerCard(
                     modifier = Modifier.staggeredEntrance(0).fillMaxWidth(),
                     color = Palette.Lavender,
@@ -118,8 +117,8 @@ fun HomeScreen(onOpenSettings: () -> Unit) {
                     )
                 }
             }
-            item(key = "recent-title") { SectionTitle("Recent", Modifier.staggeredEntrance(1)) }
-            item(key = "recent-empty") {
+            item(key = "recent-title", contentType = "section-title") { SectionTitle("Recent", Modifier.staggeredEntrance(1)) }
+            item(key = "recent-empty", contentType = "empty-state") {
                 EmptyState(
                     icon = R.drawable.ic_star,
                     title = "Nothing here yet",
@@ -137,15 +136,15 @@ fun HomeScreen(onOpenSettings: () -> Unit) {
         ) {
             StartOption(R.drawable.ic_image, "A photo", "Cut out anything", Palette.Mint) {
                 showStartSheet = false
-                scope.launch { snackbar.showSnackbar("Photos are coming soon") }
+                scope.launch { toasts.show("Photos are coming soon") }
             }
             StartOption(R.drawable.ic_bolt, "Some text", "Loud words, big fonts", Palette.Yellow) {
                 showStartSheet = false
-                scope.launch { snackbar.showSnackbar("Text is coming soon") }
+                scope.launch { toasts.show("Text is coming soon") }
             }
             StartOption(R.drawable.ic_sentiment_satisfied, "A blank canvas", "Doodle it", Palette.Peach) {
                 showStartSheet = false
-                scope.launch { snackbar.showSnackbar("Canvas is coming soon") }
+                scope.launch { toasts.show("Canvas is coming soon") }
             }
         }
     }
