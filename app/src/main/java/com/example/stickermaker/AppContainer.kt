@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.stickermaker.data.PackRepository
 import com.example.stickermaker.data.SettingsStore
 
 /**
@@ -17,6 +18,7 @@ class AppContainer(context: Context) {
     private val appContext = context.applicationContext
 
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
+    val packs: PackRepository by lazy { PackRepository(appContext) }
 }
 
 val LocalAppContainer = staticCompositionLocalOf<AppContainer> {
