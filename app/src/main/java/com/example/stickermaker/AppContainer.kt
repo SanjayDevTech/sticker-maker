@@ -9,6 +9,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.stickermaker.data.PackRepository
 import com.example.stickermaker.data.SettingsStore
+import com.example.stickermaker.data.StickerSession
+import com.example.stickermaker.data.ThumbnailCache
 
 /**
  * Hand-rolled dependency container. Every dependency is lazy so app start only pays for what
@@ -19,6 +21,8 @@ class AppContainer(context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
     val packs: PackRepository by lazy { PackRepository(appContext) }
+    val session: StickerSession by lazy { StickerSession(appContext) }
+    val thumbnails: ThumbnailCache by lazy { ThumbnailCache() }
 }
 
 val LocalAppContainer = staticCompositionLocalOf<AppContainer> {

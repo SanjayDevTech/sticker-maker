@@ -26,7 +26,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.R
+import com.example.stickermaker.data.WhatsAppLimits
 import com.example.stickermaker.ui.components.BrutalSurface
 import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
@@ -49,11 +54,24 @@ import kotlinx.coroutines.launch
 
 /** Placeholder home: the real content arrives with the app's purpose. */
 @Composable
-fun HomeScreen(onOpenSettings: () -> Unit) {
+fun HomeScreen(
+    onOpenSettings: () -> Unit,
+    onOpenCreate: () -> Unit,
+) {
     val listState = rememberLazyListState()
     val toasts = rememberToastState()
     val scope = rememberCoroutineScope()
     var showStartSheet by rememberSaveable { mutableStateOf(false) }
+    val session = LocalAppContainer.current.session
+    // System photo picker: no storage permission, multi-select up to a full pack.
+    val pickPhotos = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = WhatsAppLimits.MAX_STICKERS),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            session.startNew(uris)
+            onOpenCreate()
+        }
+    }
 
     Scaffold(
         containerColor = AppTheme.colors.canvas,
@@ -134,9 +152,9 @@ fun HomeScreen(onOpenSettings: () -> Unit) {
             onDismissRequest = { showStartSheet = false },
             title = "Start from…",
         ) {
-            StartOption(R.drawable.ic_image, "A photo", "Cut out anything", Palette.Mint) {
+            StartOption(R.drawable.ic_image, "Photos", "Pick one or more, cut them out", Palette.Mint) {
                 showStartSheet = false
-                scope.launch { toasts.show("Photos are coming soon") }
+                pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
             StartOption(R.drawable.ic_bolt, "Some text", "Loud words, big fonts", Palette.Yellow) {
                 showStartSheet = false

@@ -10,6 +10,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -18,7 +21,9 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
+import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.ui.components.LocalSharedTransitionScope
+import com.example.stickermaker.ui.screens.create.ArrangeScreen
 import com.example.stickermaker.ui.screens.designkit.DesignKitScreen
 import com.example.stickermaker.ui.screens.home.HomeScreen
 import com.example.stickermaker.ui.screens.settings.SettingsScreen
@@ -28,6 +33,16 @@ import com.example.stickermaker.ui.theme.Motion
 fun AppNavigation() {
     // Navigation 3: the back stack is just a saveable list of @Serializable keys.
     val backStack = rememberNavBackStack(HomeRoute)
+    val session = LocalAppContainer.current.session
+
+    // An image shared in from another app opens the create flow wherever the user is.
+    val openRequested by session.openRequested.collectAsStateWithLifecycle()
+    LaunchedEffect(openRequested) {
+        if (openRequested) {
+            backStack.push(ArrangeRoute)
+            session.openRequested.value = false
+        }
+    }
 
     SharedTransitionLayout {
         CompositionLocalProvider(LocalSharedTransitionScope provides this) {
@@ -46,12 +61,23 @@ fun AppNavigation() {
                 predictivePopTransitionSpec = { pop() },
                 entryProvider = entryProvider {
                     entry<HomeRoute> {
-                        HomeScreen(onOpenSettings = { backStack.push(SettingsRoute) })
+                        HomeScreen(
+                            onOpenSettings = { backStack.push(SettingsRoute) },
+                            onOpenCreate = { backStack.push(ArrangeRoute) },
+                        )
                     }
                     entry<SettingsRoute> {
                         SettingsScreen(
                             onBack = { backStack.removeLastOrNull() },
                             onOpenDesignKit = { backStack.push(DesignKitRoute) },
+                        )
+                    }
+                    entry<ArrangeRoute> {
+                        ArrangeScreen(
+                            onBack = {
+                                session.clear()
+                                backStack.removeLastOrNull()
+                            },
                         )
                     }
                     entry<DesignKitRoute> {

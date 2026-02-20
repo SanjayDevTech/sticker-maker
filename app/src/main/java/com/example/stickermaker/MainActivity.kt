@@ -1,6 +1,8 @@
 package com.example.stickermaker
 
 import android.graphics.Color
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -10,6 +12,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -21,12 +24,37 @@ import kotlinx.coroutines.flow.stateIn
 
 class MainActivity : ComponentActivity() {
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShare(intent)
+    }
+
+    /**
+     * Gallery → Share → Sticker Maker. The read grant on shared URIs only lasts while this
+     * activity is alive, so the session copies them right away.
+     */
+    private fun handleShare(intent: Intent?) {
+        val uris: List<Uri> = when (intent?.action) {
+            Intent.ACTION_SEND ->
+                listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> emptyList()
+        }
+        if (uris.isEmpty()) return
+        val session = (application as StickerMakerApp).container.session
+        session.add(uris)
+        session.openRequested.value = true
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Before super.onCreate so the splash window hands off cleanly.
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
 
         val container = (application as StickerMakerApp).container
+        // Fresh launch only: after a rotation/process restore the intent was already handled.
+        if (savedInstanceState == null) handleShare(intent)
         // Null until DataStore answers. The splash stays up until then, so the first frame is
         // already in the right theme instead of flashing light → dark.
         val themeMode = container.settings.themeMode
