@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -38,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.R
 import com.example.stickermaker.data.SessionImage
+import com.example.stickermaker.data.SessionMode
 import com.example.stickermaker.data.WhatsAppLimits
 import com.example.stickermaker.ui.components.BrutalSurface
 import com.example.stickermaker.ui.components.ChunkyButton
@@ -45,6 +48,7 @@ import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.FileImage
 import com.example.stickermaker.ui.components.IconTile
+import com.example.stickermaker.ui.components.SegmentedPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
@@ -64,6 +68,7 @@ fun ArrangeScreen(onBack: () -> Unit) {
     val session = LocalAppContainer.current.session
     val images by session.images.collectAsStateWithLifecycle()
     val importing by session.importing.collectAsStateWithLifecycle()
+    val mode by session.mode.collectAsStateWithLifecycle()
     val toasts = rememberToastState()
     val scope = rememberCoroutineScope()
     val colors = AppTheme.colors
@@ -84,6 +89,15 @@ fun ArrangeScreen(onBack: () -> Unit) {
     ) { uris -> session.add(uris) }
     fun launchAddMore() = addMore.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
 
+    val drag = rememberGridDragState(
+        grid = gridState,
+        isDraggable = { key -> key is String && session.images.value.any { it.id == key } },
+        onMove = { from, to ->
+            val list = session.images.value
+            session.move(list.indexOfFirst { it.id == from }, list.indexOfFirst { it.id == to })
+        },
+    )
+
     fun remove(image: SessionImage, index: Int) {
         session.remove(image.id)
         scope.launch { if (toasts.showUndo("Image removed")) session.restore(image, index) }
@@ -102,7 +116,11 @@ fun ArrangeScreen(onBack: () -> Unit) {
         bottomBar = {
             if (images.isNotEmpty()) {
                 ChunkyButton(
-                    text = if (images.size == 1) "Cut it out" else "Cut them out",
+                    text = when {
+                        images.size == 1 -> "Cut it out"
+                        mode == SessionMode.Combine -> "Cut out & combine"
+                        else -> "Cut them out"
+                    },
                     onClick = { scope.launch { toasts.show("The editor lands in the next step") } },
                     icon = R.drawable.ic_auto_awesome,
                     size = ChunkySize.Large,
@@ -128,7 +146,9 @@ fun ArrangeScreen(onBack: () -> Unit) {
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(3),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .gridDragReorder(drag),
             contentPadding = PaddingValues(
                 start = Dimens.ScreenGutter,
                 end = Dimens.ScreenGutter + Dimens.ShadowM,
@@ -141,19 +161,48 @@ fun ArrangeScreen(onBack: () -> Unit) {
             item(key = "header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space8), modifier = Modifier.padding(bottom = Dimens.Space8)) {
                     Text("Arrange", style = MaterialTheme.typography.displayMedium)
+                    if (images.size > 1) {
+                        SegmentedPicker(
+                            options = SessionMode.entries,
+                            selected = mode,
+                            onSelect = { session.mode.value = it },
+                            label = { if (it == SessionMode.Separate) "Separate stickers" else "Combine into one" },
+                            modifier = Modifier.padding(top = Dimens.Space8, end = Dimens.ShadowS, bottom = Dimens.Space4),
+                        )
+                    }
                     Text(
-                        "Each image becomes one sticker, in this order.",
+                        when {
+                            images.size <= 1 -> "Each image becomes one sticker. Long-press to drag."
+                            mode == SessionMode.Combine ->
+                                "All images become one sticker. Order is stacking: 1 sits at the back. Long-press to drag."
+                            else -> "Each image becomes its own sticker, in this order. Long-press to drag."
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = colors.inkMuted,
                     )
                 }
             }
             itemsIndexed(images, key = { _, it -> it.id }, contentType = { _, _ -> "image" }) { index, image ->
+                val dragging = drag.draggingKey == image.id
                 ImageTile(
                     image = image,
                     position = index + 1,
                     onRemove = { remove(image, index) },
-                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                    modifier = if (dragging) {
+                        // Lifted: follows the finger (read in the layer phase), tilted like a
+                        // peeled sticker, drawn above its neighbours.
+                        Modifier
+                            .zIndex(1f)
+                            .graphicsLayer {
+                                translationX = drag.dragOffset.x
+                                translationY = drag.dragOffset.y
+                                scaleX = 1.08f
+                                scaleY = 1.08f
+                                rotationZ = 4f
+                            }
+                    } else {
+                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+                    },
                 )
             }
             items(importing) { SkeletonBlock(Modifier.aspectRatio(1f), Shapes.Medium) }

@@ -23,6 +23,15 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/** What the picked images turn into. */
+enum class SessionMode {
+    /** Each image becomes its own sticker. */
+    Separate,
+
+    /** All images are cut out and composed as layers into one sticker. */
+    Combine,
+}
+
 /** An image picked or shared in, copied into the session folder and ready to edit. */
 data class SessionImage(val id: String, val file: File, val width: Int, val height: Int)
 
@@ -42,6 +51,8 @@ class StickerSession(context: Context) {
 
     private val _images = MutableStateFlow<List<SessionImage>>(emptyList())
     val images: StateFlow<List<SessionImage>> = _images.asStateFlow()
+
+    val mode = MutableStateFlow(SessionMode.Separate)
 
     /** How many picked images are still being imported (shown as skeletons). */
     private val _importing = MutableStateFlow(0)
@@ -98,6 +109,7 @@ class StickerSession(context: Context) {
 
     fun clear() {
         _images.value = emptyList()
+        mode.value = SessionMode.Separate
         scope.launch { dir.listFiles()?.forEach { it.delete() } }
     }
 
