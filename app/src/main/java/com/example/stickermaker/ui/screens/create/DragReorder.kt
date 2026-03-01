@@ -36,11 +36,11 @@ class GridDragState internal constructor(
     var draggingKey by mutableStateOf<Any?>(null)
         private set
 
-    /** Pointer travel since pickup, minus how far the item itself moved in the layout. */
-    var dragOffset by mutableStateOf(Offset.Zero)
-        private set
+    /** Total pointer travel since pickup. */
+    private var travel by mutableStateOf(Offset.Zero)
 
-    private var startOffset = Offset.Zero
+    /** Where the item sat in the layout when it was picked up. */
+    private var pickup = Offset.Zero
     private var autoScroll: Job? = null
 
     private fun itemAt(position: Offset): LazyGridItemInfo? =
@@ -60,27 +60,32 @@ class GridDragState internal constructor(
     private fun toItemSpace(pointer: Offset) =
         pointer + Offset(0f, grid.layoutInfo.viewportStartOffset.toFloat())
 
+    /**
+     * Translation to draw the dragged item with: where the finger has taken it, minus where the
+     * layout currently puts it. Call it inside graphicsLayer {}: the layout offset is read in
+     * the same frame the grid moves the item to its new slot, so the two always cancel out.
+     * (Correcting in the drag callback instead lagged one frame behind the swap: a flicker.)
+     */
+    fun displacement(): Offset {
+        val now = current()?.offset?.toOffset() ?: return travel
+        return pickup + travel - now
+    }
+
     internal fun start(position: Offset) {
         val item = itemAt(toItemSpace(position))?.takeIf { isDraggable(it.key) } ?: return
         draggingKey = item.key
-        startOffset = item.offset.toOffset()
-        dragOffset = Offset.Zero
+        pickup = item.offset.toOffset()
+        travel = Offset.Zero
     }
 
     internal fun drag(amount: Offset, pointer: Offset) {
         if (draggingKey == null) return
-        dragOffset += amount
+        travel += amount
         val dragged = current() ?: return
-        val center = startOffset + dragOffset + Offset(dragged.size.width / 2f, dragged.size.height / 2f)
+        val center = pickup + travel + Offset(dragged.size.width / 2f, dragged.size.height / 2f)
         val target = itemAt(center)
         if (target != null && target.key != dragged.key && isDraggable(target.key)) {
             onMove(dragged.key, target.key)
-        }
-        // Keep the dragged item under the finger as the layout moves it to its new slot.
-        val now = current()?.offset?.toOffset() ?: return
-        if (now != startOffset) {
-            dragOffset -= now - startOffset
-            startOffset = now
         }
         updateAutoScroll(pointer)
     }
@@ -106,7 +111,7 @@ class GridDragState internal constructor(
     internal fun end() {
         autoScroll?.cancel()
         draggingKey = null
-        dragOffset = Offset.Zero
+        travel = Offset.Zero
     }
 }
 

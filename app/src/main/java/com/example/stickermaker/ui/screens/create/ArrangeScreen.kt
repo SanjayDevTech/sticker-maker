@@ -174,7 +174,7 @@ fun ArrangeScreen(onBack: () -> Unit) {
                         when {
                             images.size <= 1 -> "Each image becomes one sticker. Long-press to drag."
                             mode == SessionMode.Combine ->
-                                "All images become one sticker. Order is stacking: 1 sits at the back. Long-press to drag."
+                                "All images become one sticker. This is the starting stack (1 at the back); you can restack in the editor."
                             else -> "Each image becomes its own sticker, in this order. Long-press to drag."
                         },
                         style = MaterialTheme.typography.bodyLarge,
@@ -194,8 +194,9 @@ fun ArrangeScreen(onBack: () -> Unit) {
                         Modifier
                             .zIndex(1f)
                             .graphicsLayer {
-                                translationX = drag.dragOffset.x
-                                translationY = drag.dragOffset.y
+                                val d = drag.displacement()
+                                translationX = d.x
+                                translationY = d.y
                                 scaleX = 1.08f
                                 scaleY = 1.08f
                                 rotationZ = 4f
