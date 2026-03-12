@@ -18,7 +18,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -48,6 +51,9 @@ class StickerSession(context: Context) {
     private val resolver = context.contentResolver
     private val dir = File(context.cacheDir, "session")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** One thread for mask files, so a save queued before a load is always written first. */
+    private val maskIo = Dispatchers.IO.limitedParallelism(1)
 
     private val _images = MutableStateFlow<List<SessionImage>>(emptyList())
     val images: StateFlow<List<SessionImage>> = _images.asStateFlow()
@@ -108,10 +114,38 @@ class StickerSession(context: Context) {
     }
 
     fun clear() {
+        // Delete only what this session owned: a new pick may already be importing into dir.
+        val old = _images.value
         _images.value = emptyList()
         mode.value = SessionMode.Separate
-        scope.launch { dir.listFiles()?.forEach { it.delete() } }
+        scope.launch(maskIo) {
+            old.forEach { it.file.delete(); maskFile(it).delete() }
+        }
     }
+
+    /** The editor's saved cut for [image] (alpha per pixel), or null if it hasn't been edited. */
+    suspend fun readMask(image: SessionImage): ByteArray? = withContext(maskIo) {
+        val file = maskFile(image)
+        if (!file.exists()) return@withContext null
+        runCatching { GZIPInputStream(file.inputStream()).use { it.readBytes() } }
+            .onFailure { Log.w(TAG, "Couldn't read mask of ${image.id}", it) }
+            .getOrNull()
+            ?.takeIf { it.size == image.width * image.height }
+    }
+
+    /** Saves [mask] in the background. Masks are mostly long runs, so gzip shrinks them a lot. */
+    fun writeMask(image: SessionImage, mask: ByteArray) {
+        scope.launch(maskIo) {
+            val file = maskFile(image)
+            val tmp = File(dir, "${image.id}.mask.tmp")
+            runCatching {
+                GZIPOutputStream(tmp.outputStream().buffered()).use { it.write(mask) }
+                tmp.renameTo(file)
+            }.onFailure { Log.w(TAG, "Couldn't save mask of ${image.id}", it) }
+        }
+    }
+
+    private fun maskFile(image: SessionImage) = File(dir, "${image.id}.mask")
 
     private fun import(uri: Uri): SessionImage {
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->

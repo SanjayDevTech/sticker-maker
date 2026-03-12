@@ -64,7 +64,7 @@ import kotlinx.coroutines.launch
 
 /** Step one of making stickers: see what was picked/shared, drop or add images, set the order. */
 @Composable
-fun ArrangeScreen(onBack: () -> Unit) {
+fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
     val session = LocalAppContainer.current.session
     val images by session.images.collectAsStateWithLifecycle()
     val importing by session.importing.collectAsStateWithLifecycle()
@@ -121,7 +121,8 @@ fun ArrangeScreen(onBack: () -> Unit) {
                         mode == SessionMode.Combine -> "Cut out & combine"
                         else -> "Cut them out"
                     },
-                    onClick = { scope.launch { toasts.show("The editor lands in the next step") } },
+                    onClick = onCutOut,
+                    enabled = importing == 0,
                     icon = R.drawable.ic_auto_awesome,
                     size = ChunkySize.Large,
                     modifier = Modifier

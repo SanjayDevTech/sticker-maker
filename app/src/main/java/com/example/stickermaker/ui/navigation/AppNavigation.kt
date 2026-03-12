@@ -25,6 +25,7 @@ import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.ui.components.LocalSharedTransitionScope
 import com.example.stickermaker.ui.screens.create.ArrangeScreen
 import com.example.stickermaker.ui.screens.designkit.DesignKitScreen
+import com.example.stickermaker.ui.screens.editor.EditorScreen
 import com.example.stickermaker.ui.screens.home.HomeScreen
 import com.example.stickermaker.ui.screens.settings.SettingsScreen
 import com.example.stickermaker.ui.theme.Motion
@@ -39,7 +40,12 @@ fun AppNavigation() {
     val openRequested by session.openRequested.collectAsStateWithLifecycle()
     LaunchedEffect(openRequested) {
         if (openRequested) {
-            backStack.push(ArrangeRoute)
+            // Shared images join the open session: go back to Arrange if it's in the stack.
+            if (ArrangeRoute in backStack) {
+                while (backStack.last() != ArrangeRoute) backStack.removeAt(backStack.lastIndex)
+            } else {
+                backStack.push(ArrangeRoute)
+            }
             session.openRequested.value = false
         }
     }
@@ -78,7 +84,11 @@ fun AppNavigation() {
                                 session.clear()
                                 backStack.removeLastOrNull()
                             },
+                            onCutOut = { backStack.push(EditorRoute) },
                         )
+                    }
+                    entry<EditorRoute> {
+                        EditorScreen(onBack = { backStack.removeLastOrNull() })
                     }
                     entry<DesignKitRoute> {
                         DesignKitScreen(onBack = { backStack.removeLastOrNull() })

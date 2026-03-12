@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,6 +45,7 @@ import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerCard
 import com.example.stickermaker.ui.components.ToastHost
 import com.example.stickermaker.ui.components.rememberToastState
+import com.example.stickermaker.ui.components.BrutalSlider
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
 import com.example.stickermaker.ui.components.rememberCollapsed
@@ -55,6 +58,7 @@ import com.example.stickermaker.ui.theme.Dimens
 import com.example.stickermaker.ui.theme.Palette
 import com.example.stickermaker.ui.theme.Shapes
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private data class DemoItem(val id: Int, val name: String)
 
@@ -147,6 +151,15 @@ fun DesignKitScreen(onBack: () -> Unit) {
                     label = { it },
                     modifier = Modifier.staggeredEntrance(3),
                 )
+            }
+
+            item(key = "slider-title", contentType = "section-title") { SectionTitle("Slider", Modifier.padding(top = Dimens.Space8)) }
+            item(key = "slider", contentType = "demo-block") {
+                var level by remember { mutableFloatStateOf(0.4f) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
+                    BrutalSlider(value = level, onValueChange = { level = it }, modifier = Modifier.weight(1f))
+                    Text("${(level * 100).roundToInt()}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(40.dp))
+                }
             }
 
             item(key = "blocks-title", contentType = "section-title") { SectionTitle("Blocks & tags", Modifier.staggeredEntrance(4)) }

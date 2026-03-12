@@ -20,15 +20,19 @@ class MaskHistory(private val width: Int, private val maxBytes: Int = 48 * 1024 
     val canUndo get() = undo.isNotEmpty()
     val canRedo get() = redo.isNotEmpty()
 
-    /** Records an edit of [box]: [beforeFull] is a full-size copy of the mask taken before it. */
-    fun record(beforeFull: ByteArray, mask: ByteArray, box: Box) {
-        if (box.isEmpty) return
+    /**
+     * Records an edit of [box]: [beforeFull] is a full-size copy of the mask taken before it.
+     * Returns false (and records nothing) when the edit changed no pixel.
+     */
+    fun record(beforeFull: ByteArray, mask: ByteArray, box: Box): Boolean {
+        if (box.isEmpty) return false
         val patch = Patch(box, MaskOps.copyBox(beforeFull, width, box), MaskOps.copyBox(mask, width, box))
-        if (patch.before.contentEquals(patch.after)) return
+        if (patch.before.contentEquals(patch.after)) return false
         undo.addLast(patch)
         bytes += patch.bytes
         redo.clear()
         while (bytes > maxBytes && undo.size > 1) bytes -= undo.removeFirst().bytes
+        return true
     }
 
     /** Reverts the last edit into [mask]; returns the box to redraw, or null if nothing to undo. */
