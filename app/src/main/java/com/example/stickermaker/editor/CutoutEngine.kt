@@ -32,6 +32,7 @@ class CutoutEngine private constructor(
     private val pixels: IntArray,
     private val mask: ByteArray,
     source: Bitmap,
+    private val history: MaskHistory,
 ) {
     /** The untouched image, drawn faintly under the cut while restoring. */
     val sourceImage: ImageBitmap = source.asImageBitmap()
@@ -43,7 +44,6 @@ class CutoutEngine private constructor(
     var version by mutableIntStateOf(0)
         private set
 
-    private val history = MaskHistory(width)
     val canUndo get() = history.canUndo
     val canRedo get() = history.canRedo
 
@@ -187,8 +187,11 @@ class CutoutEngine private constructor(
     }
 
     companion object {
-        /** Decodes [file] and applies [savedMask] if there is one. Call off the main thread. */
-        fun load(file: File, savedMask: ByteArray?): CutoutEngine {
+        /**
+         * Decodes [file] and applies [savedMask] if there is one. [history] belongs to the
+         * image, not the engine, so undo survives switching images. Call off the main thread.
+         */
+        fun load(file: File, savedMask: ByteArray?, history: MaskHistory): CutoutEngine {
             val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
             val source = requireNotNull(BitmapFactory.decodeFile(file.path, options)) { "Couldn't decode $file" }
             val w = source.width
@@ -197,7 +200,7 @@ class CutoutEngine private constructor(
             source.getPixels(pixels, 0, w, 0, 0, w, h)
             val mask = savedMask?.takeIf { it.size == w * h } ?: ByteArray(w * h) { MaskOps.KEPT }
             source.prepareToDraw()
-            return CutoutEngine(w, h, pixels, mask, source)
+            return CutoutEngine(w, h, pixels, mask, source, history)
         }
     }
 }

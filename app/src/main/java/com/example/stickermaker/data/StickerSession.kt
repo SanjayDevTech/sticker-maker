@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Log
+import com.example.stickermaker.editor.MaskHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +52,15 @@ class StickerSession(context: Context) {
     private val resolver = context.contentResolver
     private val dir = File(context.cacheDir, "session")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Each image's undo history, kept for the whole session so it survives switching images
+     * and leaving the editor. Main thread only. Patches are small, so this stays cheap.
+     */
+    private val histories = HashMap<String, MaskHistory>()
+
+    fun history(image: SessionImage): MaskHistory =
+        histories.getOrPut(image.id) { MaskHistory(image.width, maxBytes = HISTORY_BYTES_PER_IMAGE) }
 
     /** One thread for mask files, so a save queued before a load is always written first. */
     private val maskIo = Dispatchers.IO.limitedParallelism(1)
@@ -117,6 +127,7 @@ class StickerSession(context: Context) {
         // Delete only what this session owned: a new pick may already be importing into dir.
         val old = _images.value
         _images.value = emptyList()
+        histories.clear()
         mode.value = SessionMode.Separate
         scope.launch(maskIo) {
             old.forEach { it.file.delete(); maskFile(it).delete() }
@@ -165,6 +176,7 @@ class StickerSession(context: Context) {
     companion object {
         /** Editing resolution. Output is 512 px; the headroom keeps zoomed pixel-erasing precise. */
         const val MAX_SOURCE_PX = 1280
+        private const val HISTORY_BYTES_PER_IMAGE = 16 * 1024 * 1024
         private const val TAG = "StickerSession"
     }
 }

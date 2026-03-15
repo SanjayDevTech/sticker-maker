@@ -85,11 +85,19 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
         val image = _state.value.images[index]
         _state.update { it.copy(index = index, engine = null, failed = false, canUndo = false, canRedo = false) }
         loadJob = viewModelScope.launch {
+            val history = session.history(image)
             val mask = session.readMask(image)
-            val engine = runCatching { withContext(Dispatchers.IO) { CutoutEngine.load(image.file, mask) } }
+            val engine = runCatching { withContext(Dispatchers.IO) { CutoutEngine.load(image.file, mask, history) } }
                 .onFailure { Log.w(TAG, "Couldn't open ${image.id}", it) }
                 .getOrNull()
-            _state.update { it.copy(engine = engine, failed = engine == null) }
+            _state.update {
+                it.copy(
+                    engine = engine,
+                    failed = engine == null,
+                    canUndo = engine?.canUndo == true,
+                    canRedo = engine?.canRedo == true,
+                )
+            }
         }
     }
 
