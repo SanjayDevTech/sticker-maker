@@ -183,6 +183,15 @@ private fun Stage(state: EditorUiState, view: CanvasView, vm: EditorViewModel, m
                         rotation = 0f,
                     )
                 }
+                // Only one of these two shows: the hint goes away with the first edit.
+                AnimatedVisibility(
+                    visible = state.touched && state.tool == EditTool.Auto && state.adjustingFill,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(Dimens.Space12),
+                    enter = fadeIn(Motion.effects()) + scaleIn(Motion.spatialBouncy(), initialScale = 0.8f),
+                    exit = fadeOut(Motion.effects()) + scaleOut(Motion.spatialFast(), targetScale = 0.8f),
+                ) {
+                    StickerTag("Match is adjusting your last fill", Palette.Lime, rotation = -2f)
+                }
             }
             state.failed -> EmptyState(
                 icon = R.drawable.ic_image,

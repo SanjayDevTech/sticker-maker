@@ -67,7 +67,6 @@ class CutoutEngine private constructor(
     /** Starts a stroke at image point ([x], [y]); [radius] < 1 paints single pixels. */
     fun beginStroke(x: Float, y: Float, radius: Float, erase: Boolean) {
         if (stroking) cancelStroke()
-        lastFill = null
         mask.copyInto(before)
         stroking = true
         strokeValue = if (erase) MaskOps.ERASED else MaskOps.KEPT
@@ -90,7 +89,8 @@ class CutoutEngine private constructor(
     fun endStroke() {
         if (!stroking) return
         stroking = false
-        history.record(before, mask, strokeBox)
+        // A finished stroke locks the last fill in; a cancelled one (pinch) doesn't.
+        if (history.record(before, mask, strokeBox)) lastFill = null
     }
 
     /** Rolls the stroke back, e.g. when a second finger lands and the gesture becomes a pinch. */

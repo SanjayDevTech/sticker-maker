@@ -39,6 +39,8 @@ data class EditorUiState(
     val canRedo: Boolean = false,
     /** Whether anything was edited yet in this visit (hides the gesture hint). */
     val touched: Boolean = false,
+    /** The last Auto fill is still live: moving Match redoes it. */
+    val adjustingFill: Boolean = false,
 ) {
     val current: SessionImage? get() = images.getOrNull(index)
     val isLast get() = index >= images.lastIndex
@@ -83,7 +85,9 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
     private fun load(index: Int) {
         loadJob?.cancel()
         val image = _state.value.images[index]
-        _state.update { it.copy(index = index, engine = null, failed = false, canUndo = false, canRedo = false) }
+        _state.update {
+            it.copy(index = index, engine = null, failed = false, canUndo = false, canRedo = false, adjustingFill = false)
+        }
         loadJob = viewModelScope.launch {
             val history = session.history(image)
             val mask = session.readMask(image)
@@ -96,6 +100,7 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
                     failed = engine == null,
                     canUndo = engine?.canUndo == true,
                     canRedo = engine?.canRedo == true,
+                    adjustingFill = false,
                 )
             }
         }
@@ -148,7 +153,12 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
     private fun syncHistory(touched: Boolean = false) {
         val engine = _state.value.engine ?: return
         _state.update {
-            it.copy(canUndo = engine.canUndo, canRedo = engine.canRedo, touched = it.touched || touched)
+            it.copy(
+                canUndo = engine.canUndo,
+                canRedo = engine.canRedo,
+                touched = it.touched || touched,
+                adjustingFill = engine.canRefill,
+            )
         }
     }
 
