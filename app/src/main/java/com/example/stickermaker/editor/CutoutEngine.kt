@@ -10,6 +10,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.stickermaker.editor.MaskOps.Box
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -89,8 +91,11 @@ class CutoutEngine private constructor(
     fun endStroke() {
         if (!stroking) return
         stroking = false
-        // A finished stroke locks the last fill in; a cancelled one (pinch) doesn't.
-        if (history.record(before, mask, strokeBox)) lastFill = null
+        // A finished stroke locks the last fill and the Magic marks in; a cancelled one doesn't.
+        if (history.record(before, mask, strokeBox)) {
+            lastFill = null
+            endMagic()
+        }
     }
 
     /** Rolls the stroke back, e.g. when a second finger lands and the gesture becomes a pinch. */
@@ -121,6 +126,7 @@ class CutoutEngine private constructor(
         if (x !in 0 until width || y !in 0 until height) return
         val region = findRegion(x, y, tolerance)
         if (stroking) return // a stroke started while we computed; it wins
+        endMagic()
         lastFill = Fill(x, y, erase).also { it.recorded = applyFill(region, erase) }
     }
 
@@ -150,15 +156,165 @@ class CutoutEngine private constructor(
     // ---- History -------------------------------------------------------------------------
 
     fun undo() {
-        if (stroking) return
+        if (stroking || drawingMark != null) return
         lastFill = null
+        magic?.let { session ->
+            // Inside a Magic session, undo takes back the last run *and* the mark that caused it.
+            while (session.marks.lastOrNull()?.recorded == false) session.marks.removeAt(session.marks.lastIndex)
+            val mark = session.marks.removeLastOrNull()
+            if (mark != null) {
+                session.undone.addLast(mark)
+                history.undo(mask)?.let(::refresh)
+                session.rebuildSeeds()
+                version++
+                return
+            }
+            endMagic()
+        }
         history.undo(mask)?.let(::refresh)
     }
 
     fun redo() {
-        if (stroking) return
+        if (stroking || drawingMark != null) return
         lastFill = null
+        magic?.let { session ->
+            val mark = session.undone.removeLastOrNull()
+            if (mark != null) {
+                history.redo(mask)?.let(::refresh)
+                session.marks += mark
+                session.rebuildSeeds()
+                version++
+                return
+            }
+            endMagic()
+        }
         history.redo(mask)?.let(::refresh)
+    }
+
+    // ---- Magic ---------------------------------------------------------------------------
+
+    /** A Keep or Remove scribble, in image pixels. */
+    class Mark(val keep: Boolean, val radius: Float) {
+        private var xy = FloatArray(64)
+        var size = 0
+            private set
+
+        /** Whether this mark's run changed the mask (and so owns one undo step). */
+        var recorded = false
+
+        fun add(x: Float, y: Float) {
+            if (size + 2 > xy.size) xy = xy.copyOf(xy.size * 2)
+            xy[size++] = x
+            xy[size++] = y
+        }
+
+        fun x(i: Int) = xy[i * 2]
+        fun y(i: Int) = xy[i * 2 + 1]
+        val pointCount get() = size / 2
+    }
+
+    /**
+     * Marks since the user started using Magic. [base] is the mask before the first run: what
+     * was erased then stays erased. Ends with any non-Magic edit, which locks the result in.
+     */
+    private inner class MagicSession(val base: ByteArray) {
+        val marks = mutableListOf<Mark>()
+        val undone = ArrayDeque<Mark>()
+        val seeds = ByteArray(width * height)
+
+        fun rasterize(mark: Mark) {
+            val value = if (mark.keep) Segmenter.SEED_KEEP else Segmenter.SEED_REMOVE
+            if (mark.pointCount == 1) {
+                MaskOps.stamp(seeds, width, height, mark.x(0), mark.y(0), mark.radius, value)
+            }
+            for (i in 1 until mark.pointCount) {
+                MaskOps.stampLine(seeds, width, height, mark.x(i - 1), mark.y(i - 1), mark.x(i), mark.y(i), mark.radius, value)
+            }
+        }
+
+        fun rebuildSeeds() {
+            seeds.fill(Segmenter.SEED_NONE)
+            marks.forEach(::rasterize)
+        }
+    }
+
+    private var magic: MagicSession? = null
+
+    /** The mark being drawn right now, if any. */
+    var drawingMark: Mark? = null
+        private set
+
+    /** Finished marks of the current Magic session (drawn over the image while Magic is on). */
+    val marks: List<Mark> get() = magic?.marks ?: emptyList()
+
+    val hasKeepMark get() = magic?.marks?.any { it.keep } == true
+
+    fun beginMark(x: Float, y: Float, radius: Float, keep: Boolean) {
+        if (stroking) return
+        drawingMark = Mark(keep, radius).also { it.add(x, y) }
+        version++
+    }
+
+    fun extendMark(x: Float, y: Float) {
+        val mark = drawingMark ?: return
+        mark.add(x, y)
+        version++
+    }
+
+    fun cancelMark() {
+        drawingMark = null
+        version++
+    }
+
+    /** Adds the drawn mark to the session (starting one if needed). */
+    fun endMark() {
+        val mark = drawingMark ?: return
+        drawingMark = null
+        val session = magic ?: MagicSession(mask.copyOf()).also { magic = it }
+        session.marks += mark
+        session.undone.clear()
+        session.rasterize(mark)
+        version++
+    }
+
+    /**
+     * Segments with the current marks off the main thread and applies the result as one undo
+     * step. Returns false if there was nothing to do or the marks changed meanwhile.
+     */
+    suspend fun runMagic(): Boolean {
+        val session = magic ?: return false
+        val target = session.marks.lastOrNull() ?: return false
+        val seeds = session.seeds.copyOf()
+        val job = currentCoroutineContext().job
+        val result = withContext(Dispatchers.Default) {
+            Segmenter.segment(pixels, width, height, session.base, seeds) { job.isActive }
+        } ?: return false
+        if (magic !== session || session.marks.lastOrNull() !== target || stroking) return false
+        var box = Box.EMPTY
+        var minX = width; var minY = height; var maxX = -1; var maxY = -1
+        for (i in result.indices) {
+            if (result[i] != mask[i]) {
+                val x = i % width
+                val y = i / width
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+            }
+        }
+        if (maxX >= 0) box = Box(minX, minY, maxX + 1, maxY + 1)
+        mask.copyInto(before)
+        result.copyInto(mask)
+        refresh(box)
+        target.recorded = history.record(before, mask, box)
+        lastFill = null
+        return true
+    }
+
+    private fun endMagic() {
+        if (magic == null) return
+        magic = null
+        version++
     }
 
     /** A copy of the mask to save; call from main. */

@@ -1,6 +1,8 @@
 package com.example.stickermaker.ui.screens.editor
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -149,7 +152,7 @@ private fun Stage(state: EditorUiState, view: CanvasView, vm: EditorViewModel, m
                     view = view,
                     tool = state.tool,
                     erase = state.erase,
-                    brushPx = state.brushPx,
+                    brushPx = if (state.tool == EditTool.Magic) state.markerPx else state.brushPx,
                     onBeginStroke = vm::beginStroke,
                     onExtendStroke = vm::extendStroke,
                     onEndStroke = vm::endStroke,
@@ -168,30 +171,10 @@ private fun Stage(state: EditorUiState, view: CanvasView, vm: EditorViewModel, m
                         IconTile(R.drawable.ic_fit_screen, "Fit to screen", { scope.launch { view.reset() } }, size = 40.dp)
                     }
                 }
-                AnimatedVisibility(
-                    visible = !state.touched,
+                CanvasMessage(
+                    message = canvasMessage(state),
                     modifier = Modifier.align(Alignment.BottomCenter).padding(Dimens.Space12),
-                    enter = fadeIn(Motion.effects()),
-                    exit = fadeOut(Motion.effects()),
-                ) {
-                    StickerTag(
-                        when (state.tool) {
-                            EditTool.Brush -> if (state.erase) "Drag to erase · pinch to zoom" else "Drag to restore · pinch to zoom"
-                            EditTool.Auto -> if (state.erase) "Tap a colour to erase it" else "Tap a colour to restore it"
-                        },
-                        AppTheme.colors.surface,
-                        rotation = 0f,
-                    )
-                }
-                // Only one of these two shows: the hint goes away with the first edit.
-                AnimatedVisibility(
-                    visible = state.touched && state.tool == EditTool.Auto && state.adjustingFill,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(Dimens.Space12),
-                    enter = fadeIn(Motion.effects()) + scaleIn(Motion.spatialBouncy(), initialScale = 0.8f),
-                    exit = fadeOut(Motion.effects()) + scaleOut(Motion.spatialFast(), targetScale = 0.8f),
-                ) {
-                    StickerTag("Match is adjusting your last fill", Palette.Lime, rotation = -2f)
-                }
+                )
             }
             state.failed -> EmptyState(
                 icon = R.drawable.ic_image,
@@ -204,45 +187,111 @@ private fun Stage(state: EditorUiState, view: CanvasView, vm: EditorViewModel, m
     }
 }
 
+/** One tag at the bottom of the canvas: what's happening now, or how to start. */
+private data class Message(val text: String, val color: Color)
+
+@Composable
+private fun canvasMessage(state: EditorUiState): Message? {
+    val surface = AppTheme.colors.surface
+    return when {
+        state.magicBusy -> Message("Finding the subject…", Palette.Sky)
+        state.tool == EditTool.Magic && state.magicMarks == 0 ->
+            Message(if (state.erase) "Switch to Keep and scribble on the subject" else "Scribble over the subject", surface)
+        state.tool == EditTool.Magic && !state.touched -> null
+        state.tool == EditTool.Auto && state.adjustingFill -> Message("Match is adjusting your last fill", Palette.Lime)
+        state.touched -> null
+        state.tool == EditTool.Brush ->
+            Message(if (state.erase) "Drag to erase · pinch to zoom" else "Drag to restore · pinch to zoom", surface)
+        else -> Message(if (state.erase) "Tap a colour to erase it" else "Tap a colour to restore it", surface)
+    }
+}
+
+@Composable
+private fun CanvasMessage(message: Message?, modifier: Modifier) {
+    AnimatedContent(
+        targetState = message,
+        modifier = modifier,
+        transitionSpec = {
+            (fadeIn(Motion.effects()) + scaleIn(Motion.spatialBouncy(), initialScale = 0.8f)) togetherWith
+                (fadeOut(Motion.effects()) + scaleOut(Motion.spatialFast(), targetScale = 0.8f))
+        },
+        contentAlignment = Alignment.BottomCenter,
+        label = "canvasMessage",
+    ) { m ->
+        if (m != null) StickerTag(m.text, m.color, rotation = -2f)
+    }
+}
+
 @Composable
 private fun ToolPanel(state: EditorUiState, vm: EditorViewModel, view: CanvasView) {
+    val magic = state.tool == EditTool.Magic
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
-            SegmentedPicker(
-                options = EditTool.entries,
-                selected = state.tool,
-                onSelect = vm::setTool,
-                label = { if (it == EditTool.Brush) "Brush" else "Auto" },
-                icon = { if (it == EditTool.Brush) R.drawable.ic_brush else R.drawable.ic_format_color_fill },
-                selectedColor = Palette.Yellow,
-                modifier = Modifier.weight(1f),
-            )
-            SegmentedPicker(
-                options = listOf(true, false),
-                selected = state.erase,
-                onSelect = vm::setErase,
-                label = { if (it) "Erase" else "Restore" },
-                icon = { if (it) R.drawable.ic_ink_eraser else R.drawable.ic_healing },
-                selectedColor = if (state.erase) Palette.Coral else Palette.Mint,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        SegmentedPicker(
+            options = EditTool.entries,
+            selected = state.tool,
+            onSelect = vm::setTool,
+            label = {
+                when (it) {
+                    EditTool.Brush -> "Brush"
+                    EditTool.Auto -> "Auto"
+                    EditTool.Magic -> "Magic"
+                }
+            },
+            icon = {
+                when (it) {
+                    EditTool.Brush -> R.drawable.ic_brush
+                    EditTool.Auto -> R.drawable.ic_format_color_fill
+                    EditTool.Magic -> R.drawable.ic_auto_awesome
+                }
+            },
+            selectedColor = Palette.Yellow,
+        )
+        // Every tool has an inverse. For Magic it decides what a scribble marks.
+        SegmentedPicker(
+            options = listOf(true, false),
+            selected = state.erase,
+            onSelect = vm::setErase,
+            label = {
+                when {
+                    magic -> if (it) "Remove" else "Keep"
+                    else -> if (it) "Erase" else "Restore"
+                }
+            },
+            icon = { if (it) R.drawable.ic_ink_eraser else R.drawable.ic_healing },
+            selectedColor = when {
+                state.erase -> Palette.Coral
+                magic -> Palette.Lime
+                else -> Palette.Mint
+            },
+        )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
-            val isBrush = state.tool == EditTool.Brush
+            val sized = state.tool != EditTool.Auto
             Text(
-                if (isBrush) "Size" else "Match",
+                if (sized) "Size" else "Match",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.width(56.dp),
             )
             BrutalSlider(
-                value = if (isBrush) state.brush else state.tolerance,
-                onValueChange = if (isBrush) vm::setBrush else vm::setTolerance,
-                color = if (isBrush) Palette.Pink else Palette.Lime,
-                onActiveChange = { view.previewBrush = it && isBrush },
+                value = when (state.tool) {
+                    EditTool.Brush -> state.brush
+                    EditTool.Magic -> state.marker
+                    EditTool.Auto -> state.tolerance
+                },
+                onValueChange = if (sized) vm::setBrush else vm::setTolerance,
+                color = when (state.tool) {
+                    EditTool.Brush -> Palette.Pink
+                    EditTool.Magic -> Palette.Sky
+                    EditTool.Auto -> Palette.Lime
+                },
+                onActiveChange = { view.previewBrush = it && sized },
                 modifier = Modifier.weight(1f),
             )
             Text(
-                if (isBrush) "${state.brushPx} px" else "${(state.tolerance * 100).roundToInt()}%",
+                when (state.tool) {
+                    EditTool.Brush -> "${state.brushPx} px"
+                    EditTool.Magic -> "${state.markerPx} px"
+                    EditTool.Auto -> "${(state.tolerance * 100).roundToInt()}%"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.End,
                 modifier = Modifier.width(64.dp),

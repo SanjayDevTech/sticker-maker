@@ -32,6 +32,10 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import com.example.stickermaker.ui.theme.Palette
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -149,7 +153,8 @@ fun EditorCanvas(
                     val start = frame.toImage(down.position)
                     var pinching = false
                     var moved = false
-                    if (activeTool == EditTool.Brush) {
+                    val strokes = activeTool != EditTool.Auto
+                    if (strokes) {
                         callbacks.begin(start.x, start.y)
                         view.cursor = down.position
                     }
@@ -159,7 +164,7 @@ fun EditorCanvas(
                         if (event.changes.none { it.pressed }) break
                         if (!pinching && event.changes.count { it.pressed } > 1) {
                             pinching = true
-                            if (activeTool == EditTool.Brush) callbacks.cancel()
+                            if (strokes) callbacks.cancel()
                             view.cursor = null
                         }
                         if (pinching) {
@@ -173,7 +178,7 @@ fun EditorCanvas(
                             val change = event.changes.firstOrNull { it.id == down.id } ?: continue
                             val d = change.position - down.position
                             if (abs(d.x) > slop || abs(d.y) > slop) moved = true
-                            if (activeTool == EditTool.Brush) {
+                            if (strokes) {
                                 // Historical points keep fast strokes smooth.
                                 change.historical.forEach {
                                     val p = frame.toImage(it.position)
@@ -188,10 +193,7 @@ fun EditorCanvas(
                     }
                     view.cursor = null
                     if (!pinching) {
-                        when (activeTool) {
-                            EditTool.Brush -> callbacks.end()
-                            EditTool.Auto -> if (!moved) callbacks.fill(start.x, start.y)
-                        }
+                        if (strokes) callbacks.end() else if (!moved) callbacks.fill(start.x, start.y)
                     }
                 }
             }
@@ -210,12 +212,16 @@ fun EditorCanvas(
                         scale(f.scale, f.scale, pivot = Offset.Zero) {
                             if (ghost) drawBitmap(engine.sourceImage, w, h, GHOST_ALPHA, quality)
                             drawBitmap(engine.displayImage, w, h, 1f, quality)
+                            if (currentTool == EditTool.Magic) {
+                                engine.marks.forEach { drawMark(it) }
+                                engine.drawingMark?.let { drawMark(it) }
+                            }
                         }
                     }
                     drawRect(colors.ink, f.topLeft - Offset(outline / 2, outline / 2), Size(dw + outline, dh + outline), style = Stroke(outline))
 
                     val ringAt = view.cursor ?: if (view.previewBrush) center else null
-                    if (ringAt != null && (currentTool == EditTool.Brush || view.previewBrush)) {
+                    if (ringAt != null && (currentTool != EditTool.Auto || view.previewBrush)) {
                         val r = max(ringMin, brush / 2f * f.scale)
                         drawCircle(Color.White, r, ringAt, style = Stroke(outline * 2))
                         drawCircle(Color.Black, r, ringAt, style = Stroke(outline))
@@ -234,6 +240,22 @@ private class StrokeCallbacks(
 )
 
 private const val GHOST_ALPHA = 0.3f
+private const val MARK_ALPHA = 0.6f
+
+/** A Magic mark as a fat translucent scribble: lime keeps, coral removes. */
+private fun DrawScope.drawMark(mark: CutoutEngine.Mark) {
+    val color = if (mark.keep) Palette.Lime else Palette.Coral
+    val path = Path()
+    path.moveTo(mark.x(0), mark.y(0))
+    if (mark.pointCount == 1) path.lineTo(mark.x(0) + 0.01f, mark.y(0))
+    for (i in 1 until mark.pointCount) path.lineTo(mark.x(i), mark.y(i))
+    drawPath(
+        path,
+        color,
+        alpha = MARK_ALPHA,
+        style = Stroke(width = mark.radius * 2, cap = StrokeCap.Round, join = StrokeJoin.Round),
+    )
+}
 
 private fun DrawScope.drawBitmap(image: ImageBitmap, w: Int, h: Int, alpha: Float, quality: FilterQuality) =
     drawImage(image, dstSize = IntSize(w, h), alpha = alpha, filterQuality = quality)

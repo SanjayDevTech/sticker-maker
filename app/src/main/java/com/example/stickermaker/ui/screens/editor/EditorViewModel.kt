@@ -7,6 +7,7 @@ import com.example.stickermaker.data.SessionImage
 import com.example.stickermaker.data.SessionMode
 import com.example.stickermaker.data.StickerSession
 import com.example.stickermaker.editor.CutoutEngine
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -20,7 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-enum class EditTool { Brush, Auto }
+enum class EditTool { Brush, Auto, Magic }
 
 data class EditorUiState(
     val images: List<SessionImage> = emptyList(),
@@ -34,6 +35,8 @@ data class EditorUiState(
     val erase: Boolean = true,
     /** Slider position 0..1; see [brushPx]. */
     val brush: Float = 0.3f,
+    /** Magic's marker size, same 0..1 scale as [brush]; fat by default since marks are rough. */
+    val marker: Float = 0.5f,
     val tolerance: Float = 0.15f,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -41,12 +44,17 @@ data class EditorUiState(
     val touched: Boolean = false,
     /** The last Auto fill is still live: moving Match redoes it. */
     val adjustingFill: Boolean = false,
+    /** Marks in the current Magic session. */
+    val magicMarks: Int = 0,
+    /** A Magic run is computing. */
+    val magicBusy: Boolean = false,
 ) {
     val current: SessionImage? get() = images.getOrNull(index)
     val isLast get() = index >= images.lastIndex
 
     /** Brush diameter in image pixels, 1..150. Squared so the small sizes get most of the travel. */
     val brushPx: Int get() = brushPx(brush)
+    val markerPx: Int get() = brushPx(marker)
 
     companion object {
         const val MAX_BRUSH_PX = 150
@@ -62,6 +70,7 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
     /** Tolerance changes while a fill is live redo that fill; only the latest one matters. */
     private val refills = MutableSharedFlow<Float>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private var loadJob: Job? = null
+    private var magicJob: Job? = null
 
     init {
         if (_state.value.images.isNotEmpty()) load(0)
@@ -84,9 +93,11 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
 
     private fun load(index: Int) {
         loadJob?.cancel()
+        magicJob?.cancel()
         val image = _state.value.images[index]
         _state.update {
-            it.copy(index = index, engine = null, failed = false, canUndo = false, canRedo = false, adjustingFill = false)
+            it.copy(index = index, engine = null, failed = false, canUndo = false, canRedo = false, adjustingFill = false,
+                magicMarks = 0, magicBusy = false)
         }
         loadJob = viewModelScope.launch {
             val history = session.history(image)
@@ -106,9 +117,14 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
         }
     }
 
-    fun setTool(tool: EditTool) = _state.update { it.copy(tool = tool) }
+    fun setTool(tool: EditTool) = _state.update {
+        // Magic starts by marking the subject, so it opens on Keep.
+        if (tool == EditTool.Magic && it.magicMarks == 0) it.copy(tool = tool, erase = false) else it.copy(tool = tool)
+    }
     fun setErase(erase: Boolean) = _state.update { it.copy(erase = erase) }
-    fun setBrush(value: Float) = _state.update { it.copy(brush = value) }
+    fun setBrush(value: Float) = _state.update {
+        if (it.tool == EditTool.Magic) it.copy(marker = value) else it.copy(brush = value)
+    }
 
     fun setTolerance(value: Float) {
         _state.update { it.copy(tolerance = value) }
@@ -117,23 +133,65 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
 
     // Gesture callbacks (main thread). Positions are in image pixels.
 
+    // Brush and Magic both draw strokes; Magic's become Keep/Remove marks instead of edits.
+
     fun beginStroke(x: Float, y: Float) {
         val s = _state.value
-        s.engine?.beginStroke(x, y, s.brushPx / 2f, s.erase)
+        val engine = s.engine ?: return
+        if (s.tool == EditTool.Magic) {
+            engine.beginMark(x, y, s.markerPx / 2f, keep = !s.erase)
+        } else {
+            engine.beginStroke(x, y, s.brushPx / 2f, s.erase)
+        }
     }
 
-    fun extendStroke(x: Float, y: Float) = _state.value.engine?.extendStroke(x, y)
+    fun extendStroke(x: Float, y: Float) {
+        val s = _state.value
+        val engine = s.engine ?: return
+        if (s.tool == EditTool.Magic) engine.extendMark(x, y) else engine.extendStroke(x, y)
+    }
 
     fun endStroke() {
-        _state.value.engine?.endStroke()
+        val s = _state.value
+        val engine = s.engine ?: return
+        if (s.tool == EditTool.Magic) {
+            engine.endMark()
+            runMagic(engine)
+        } else {
+            engine.endStroke()
+        }
         syncHistory(touched = true)
     }
 
-    fun cancelStroke() = _state.value.engine?.cancelStroke()
+    fun cancelStroke() {
+        val s = _state.value
+        if (s.tool == EditTool.Magic) s.engine?.cancelMark() else s.engine?.cancelStroke()
+    }
+
+    private fun runMagic(engine: CutoutEngine) {
+        // Without a Keep mark there's no subject to find yet; the hint asks for one.
+        if (!engine.hasKeepMark) return
+        magicJob?.cancel()
+        // Lazy so magicJob is set before the body can finish (Main.immediate runs it inline).
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                engine.runMagic()
+            } finally {
+                if (magicJob === coroutineContext[Job]) {
+                    _state.update { it.copy(magicBusy = false) }
+                    syncHistory()
+                }
+            }
+        }
+        magicJob = job
+        _state.update { it.copy(magicBusy = true) }
+        job.start()
+    }
 
     fun fill(x: Float, y: Float) {
         val s = _state.value
         val engine = s.engine ?: return
+        magicJob?.cancel()
         viewModelScope.launch {
             engine.fill(x.toInt(), y.toInt(), s.tolerance, s.erase)
             syncHistory(touched = true)
@@ -141,11 +199,13 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
     }
 
     fun undo() {
+        magicJob?.cancel()
         _state.value.engine?.undo()
         syncHistory()
     }
 
     fun redo() {
+        magicJob?.cancel()
         _state.value.engine?.redo()
         syncHistory()
     }
@@ -158,6 +218,7 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
                 canRedo = engine.canRedo,
                 touched = it.touched || touched,
                 adjustingFill = engine.canRefill,
+                magicMarks = engine.marks.size,
             )
         }
     }
