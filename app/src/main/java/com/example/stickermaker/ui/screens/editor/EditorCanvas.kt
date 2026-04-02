@@ -23,15 +23,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.ImageShader
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.Canvas as ComposeCanvas
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -41,6 +36,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import com.example.stickermaker.editor.CutoutEngine
+import com.example.stickermaker.ui.components.rememberCheckerBrush
 import com.example.stickermaker.ui.theme.AppTheme
 import com.example.stickermaker.ui.theme.Dimens
 import com.example.stickermaker.ui.theme.Motion
@@ -139,7 +135,7 @@ fun EditorCanvas(
     )
     val w = engine.width
     val h = engine.height
-    val checker = rememberChecker(colors.isDark)
+    val checker = rememberCheckerBrush()
 
     Spacer(
         modifier
@@ -259,22 +255,3 @@ private fun DrawScope.drawMark(mark: CutoutEngine.Mark) {
 
 private fun DrawScope.drawBitmap(image: ImageBitmap, w: Int, h: Int, alpha: Float, quality: FilterQuality) =
     drawImage(image, dstSize = IntSize(w, h), alpha = alpha, filterQuality = quality)
-
-/** A repeating two-tone checker as a shader brush: one rect draw instead of hundreds. */
-@Composable
-private fun rememberChecker(dark: Boolean): ShaderBrush {
-    val light = if (dark) Color(0xFF2A2826) else Color(0xFFFFFFFF)
-    val shade = if (dark) Color(0xFF1C1B1A) else Color(0xFFE9E3D8)
-    val cellPx = with(androidx.compose.ui.platform.LocalDensity.current) { 10.dp.roundToPx() }
-    return remember(dark, cellPx) {
-        val tile = ImageBitmap(cellPx * 2, cellPx * 2)
-        val canvas = ComposeCanvas(tile)
-        val paint = Paint()
-        paint.color = light
-        canvas.drawRect(0f, 0f, cellPx * 2f, cellPx * 2f, paint)
-        paint.color = shade
-        canvas.drawRect(0f, 0f, cellPx.toFloat(), cellPx.toFloat(), paint)
-        canvas.drawRect(cellPx.toFloat(), cellPx.toFloat(), cellPx * 2f, cellPx * 2f, paint)
-        ShaderBrush(ImageShader(tile, TileMode.Repeated, TileMode.Repeated))
-    }
-}

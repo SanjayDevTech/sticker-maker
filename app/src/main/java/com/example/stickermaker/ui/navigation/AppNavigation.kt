@@ -24,6 +24,7 @@ import androidx.navigation3.ui.NavDisplay
 import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.ui.components.LocalSharedTransitionScope
 import com.example.stickermaker.ui.screens.create.ArrangeScreen
+import com.example.stickermaker.ui.screens.combine.CombineScreen
 import com.example.stickermaker.ui.screens.designkit.DesignKitScreen
 import com.example.stickermaker.ui.screens.editor.EditorScreen
 import com.example.stickermaker.ui.screens.home.HomeScreen
@@ -88,7 +89,13 @@ fun AppNavigation() {
                         )
                     }
                     entry<EditorRoute> {
-                        EditorScreen(onBack = { backStack.removeLastOrNull() })
+                        EditorScreen(
+                            onBack = { backStack.removeLastOrNull() },
+                            onCombine = { backStack.push(CombineRoute) },
+                        )
+                    }
+                    entry<CombineRoute> {
+                        CombineScreen(onBack = { backStack.removeLastOrNull() })
                     }
                     entry<DesignKitRoute> {
                         DesignKitScreen(onBack = { backStack.removeLastOrNull() })

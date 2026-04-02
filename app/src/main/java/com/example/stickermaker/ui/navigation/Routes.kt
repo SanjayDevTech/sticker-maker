@@ -8,3 +8,4 @@ import kotlinx.serialization.Serializable
 @Serializable data object DesignKitRoute : NavKey
 @Serializable data object ArrangeRoute : NavKey
 @Serializable data object EditorRoute : NavKey
+@Serializable data object CombineRoute : NavKey
