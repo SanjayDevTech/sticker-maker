@@ -56,12 +56,16 @@ fun CombineCanvas(
     layers: List<Layer>,
     selected: Layer?,
     onSelect: (String?) -> Unit,
+    onGestureStart: () -> Unit,
+    onGestureEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = AppTheme.colors
     val currentLayers by rememberUpdatedState(layers)
     val currentSelected by rememberUpdatedState(selected)
     val select by rememberUpdatedState(onSelect)
+    val gestureStart by rememberUpdatedState(onGestureStart)
+    val gestureEnd by rememberUpdatedState(onGestureEnd)
     val guides = remember { Guides() }
     val checker = rememberCheckerBrush()
 
@@ -83,6 +87,7 @@ fun CombineCanvas(
                         if (target != null && target !== currentSelected) select(target.id)
                     }
                     down.consume()
+                    if (target != null) gestureStart()
 
                     // Raw values while the gesture runs; snapping applies to what's shown.
                     var rawX = target?.centerX ?: 0f
@@ -142,6 +147,7 @@ fun CombineCanvas(
                     }
                     guides.vertical = false
                     guides.horizontal = false
+                    if (target != null) gestureEnd()
                     // A tap on empty board clears the selection.
                     if (target == null && !pinching) select(null)
                 }

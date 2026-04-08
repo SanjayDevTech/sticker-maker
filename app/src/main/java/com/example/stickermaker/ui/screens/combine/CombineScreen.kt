@@ -45,6 +45,7 @@ import com.example.stickermaker.ui.components.StickerTopBar
 import com.example.stickermaker.ui.components.ToastHost
 import com.example.stickermaker.ui.components.checkerboard
 import com.example.stickermaker.ui.components.rememberToastState
+import com.example.stickermaker.ui.components.showUndo
 import com.example.stickermaker.ui.theme.AppTheme
 import com.example.stickermaker.ui.theme.Dimens
 import com.example.stickermaker.ui.theme.Palette
@@ -79,6 +80,10 @@ fun CombineScreen(onBack: () -> Unit) {
                 title = "Combine",
                 collapsed = true,
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
+                actions = {
+                    IconTile(R.drawable.ic_undo, "Undo", vm::undo, enabled = state.canUndo)
+                    IconTile(R.drawable.ic_redo, "Redo", vm::redo, enabled = state.canRedo)
+                },
             )
         },
         snackbarHost = { ToastHost(toasts) },
@@ -114,6 +119,8 @@ fun CombineScreen(onBack: () -> Unit) {
                             layers = state.layers,
                             selected = state.selected,
                             onSelect = vm::select,
+                            onGestureStart = vm::beginGesture,
+                            onGestureEnd = vm::endGesture,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -123,7 +130,20 @@ fun CombineScreen(onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.inkMuted,
                 )
-                if (state.layers.isNotEmpty()) LayerStrip(state, vm)
+                if (state.layers.isNotEmpty()) {
+                    LayerStrip(
+                        state = state,
+                        vm = vm,
+                        onDelete = { layer ->
+                            val index = vm.delete(layer.id)
+                            if (index >= 0) {
+                                scope.launch {
+                                    if (toasts.showUndo("Layer ${layer.number} removed")) vm.undoDelete(layer.id, index)
+                                }
+                            }
+                        },
+                    )
+                }
             }
             ChunkyButton(
                 text = "Save sticker",
@@ -173,7 +193,8 @@ fun CombineScreen(onBack: () -> Unit) {
 
 /** The stack, front first, with the restack and flip actions for the picked layer. */
 @Composable
-private fun LayerStrip(state: CombineUiState, vm: CombineViewModel) {
+private fun LayerStrip(state: CombineUiState, vm: CombineViewModel, onDelete: (Layer) -> Unit) {
+    val canDelete = state.layers.size > 1
     val selectedIndex = state.selectedIndex
     val hasSelection = selectedIndex >= 0
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -199,6 +220,7 @@ private fun LayerStrip(state: CombineUiState, vm: CombineViewModel) {
                     layer = layer,
                     selected = layer.id == state.selectedId,
                     onClick = { vm.select(layer.id) },
+                    onDelete = if (canDelete) ({ onDelete(layer) }) else null,
                     modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                 )
             }
@@ -207,10 +229,11 @@ private fun LayerStrip(state: CombineUiState, vm: CombineViewModel) {
 }
 
 @Composable
-private fun LayerThumb(layer: Layer, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    Box(modifier.size(64.dp)) {
+private fun LayerThumb(layer: Layer, selected: Boolean, onClick: () -> Unit, onDelete: (() -> Unit)?, modifier: Modifier) {
+    // Extra room on the top-end for the delete tile, which overhangs the thumbnail.
+    Box(modifier.size(76.dp)) {
         BrutalSurface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.size(64.dp).align(Alignment.BottomStart),
             shape = Shapes.Small,
             color = if (selected) Palette.Yellow else AppTheme.colors.surface,
             borderWidth = if (selected) Dimens.BorderThick else Dimens.Border,
@@ -225,6 +248,15 @@ private fun LayerThumb(layer: Layer, selected: Boolean, onClick: () -> Unit, mod
                 contentScale = ContentScale.Fit,
             )
         }
-        StickerTag("${layer.number}", Palette.Lavender, rotation = -6f, modifier = Modifier.align(Alignment.TopStart).padding(2.dp))
+        StickerTag("${layer.number}", Palette.Lavender, rotation = -6f, modifier = Modifier.align(Alignment.TopStart).padding(top = 8.dp))
+        if (onDelete != null) {
+            IconTile(
+                R.drawable.ic_close,
+                "Remove layer ${layer.number}",
+                onDelete,
+                size = 28.dp,
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = Dimens.ShadowS),
+            )
+        }
     }
 }
