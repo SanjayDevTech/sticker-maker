@@ -65,7 +65,7 @@ import kotlin.math.roundToInt
 
 /** Cut each picked image out: brush or colour-fill away the background, restore mistakes. */
 @Composable
-fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit) {
+fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) {
     val vm = appViewModel { EditorViewModel(it.session) }
     val state by vm.state.collectAsStateWithLifecycle()
     val view = remember(state.index) { CanvasView() }
@@ -122,11 +122,7 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit) {
                         vm.next()
                     } else {
                         vm.saveCurrent()
-                        if (state.mode == SessionMode.Combine) {
-                            onCombine()
-                        } else {
-                            scope.launch { toasts.show("Saving to a pack comes next") }
-                        }
+                        if (state.mode == SessionMode.Combine) onCombine() else onSave()
                     }
                 },
                 icon = if (state.isLast) R.drawable.ic_check else R.drawable.ic_arrow_forward,

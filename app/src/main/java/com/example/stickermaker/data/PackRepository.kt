@@ -1,6 +1,9 @@
 package com.example.stickermaker.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import com.example.stickermaker.editor.StickerExport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,6 +40,11 @@ class PackRepository(context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private companion object {
+        /** WhatsApp requires a publisher name; packs made here are credited to the app. */
+        const val PUBLISHER = "Sticker Maker"
+    }
 
     private val _packs = MutableStateFlow<List<StickerPack>?>(null)
 
@@ -98,13 +106,12 @@ class PackRepository(context: Context) {
             pack.copy(stickers = without.toMutableList().apply { add(at, sticker) })
         }
 
-    suspend fun removeSticker(packId: String, stickerId: String) = updatePack(packId, bumpVersion = true) { pack ->
-        pack.copy(stickers = pack.stickers.filterNot { it.id == stickerId })
-    }
-
-    suspend fun reorderStickers(packId: String, orderedIds: List<String>) = updatePack(packId, bumpVersion = true) { pack ->
-        val byId = pack.stickers.associateBy { it.id }
-        pack.copy(stickers = orderedIds.mapNotNull { byId[it] } + pack.stickers.filterNot { it.id in orderedIds })
+    suspend fun reorderStickers(packId: String, orderedIds: List<String>) {
+        updatePack(packId, bumpVersion = true) { pack ->
+            val byId = pack.stickers.associateBy { it.id }
+            pack.copy(stickers = orderedIds.mapNotNull { byId[it] } + pack.stickers.filterNot { it.id in orderedIds })
+        }
+        refreshTray(packId)
     }
 
     suspend fun setEmojis(packId: String, stickerId: String, emojis: List<String>) = updatePack(packId, bumpVersion = false) { pack ->
@@ -112,6 +119,66 @@ class PackRepository(context: Context) {
             if (it.id == stickerId) it.copy(emojis = emojis.take(WhatsAppLimits.MAX_EMOJIS).ifEmpty { listOf("🙂") }) else it
         })
     }
+
+    /**
+     * Encodes [stickers] (512 squares) into [packId], or into a new pack called [newName], and
+     * returns the pack id. Files are written first, then the index in one step.
+     */
+    suspend fun addStickers(packId: String?, newName: String?, stickers: List<Bitmap>): String {
+        val id = packId ?: createPack(newName?.trim().orEmpty().ifEmpty { "My stickers" }, PUBLISHER).id
+        val added = withContext(Dispatchers.Default) {
+            stickers.map { bitmap ->
+                val sticker = Sticker(id = newId(), updatedAt = System.currentTimeMillis())
+                writeAtomically(stickerFile(id, sticker.id), StickerExport.encodeSticker(bitmap))
+                sticker
+            }
+        }
+        updatePack(id, bumpVersion = true) { pack ->
+            pack.copy(stickers = (pack.stickers + added).take(WhatsAppLimits.MAX_STICKERS))
+        }
+        refreshTray(id)
+        return id
+    }
+
+    /** Removes a sticker from the index; returns it and its position for [restoreSticker]. */
+    suspend fun removeSticker(packId: String, stickerId: String): Pair<Sticker, Int>? {
+        val pack = pack(packId) ?: return null
+        val index = pack.stickers.indexOfFirst { it.id == stickerId }
+        if (index < 0) return null
+        val sticker = pack.stickers[index]
+        updatePack(packId, bumpVersion = true) { p -> p.copy(stickers = p.stickers.filterNot { it.id == stickerId }) }
+        refreshTray(packId)
+        return sticker to index
+    }
+
+    suspend fun restoreSticker(packId: String, sticker: Sticker, index: Int) {
+        putSticker(packId, sticker, index)
+        refreshTray(packId)
+    }
+
+    /** The tray icon follows the pack's first sticker. */
+    private suspend fun refreshTray(packId: String) = withContext(Dispatchers.Default) {
+        val first = pack(packId)?.stickers?.firstOrNull() ?: return@withContext
+        val bitmap = BitmapFactory.decodeFile(stickerFile(packId, first.id).path) ?: return@withContext
+        writeAtomically(trayFile(packId), StickerExport.encodeTray(bitmap))
+        bitmap.recycle()
+    }
+
+    private fun writeAtomically(file: File, bytes: ByteArray) {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        tmp.writeBytes(bytes)
+        if (!tmp.renameTo(file)) {
+            file.delete()
+            tmp.renameTo(file)
+        }
+    }
+
+    /**
+     * A pack just deleted from its own screen, for Home to offer Undo once it's back on screen.
+     * Home clears it after showing the toast.
+     */
+    val recentlyRemoved = MutableStateFlow<StickerPack?>(null)
 
     fun newId(): String = UUID.randomUUID().toString().replace("-", "").take(16)
 
@@ -176,7 +243,7 @@ class PackRepository(context: Context) {
             val keep = pack.stickers.map { it.id }.toSet()
             dir.walkTopDown().filter { it.isFile }.forEach { file ->
                 val stickerId = file.name.substringBefore('.')
-                if (stickerId != "tray" && stickerId !in keep) file.delete()
+                if (stickerId != "tray" && stickerId !in keep || file.name.endsWith(".tmp")) file.delete()
             }
         }
     }

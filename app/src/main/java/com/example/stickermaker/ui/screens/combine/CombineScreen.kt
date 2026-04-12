@@ -26,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,7 +38,6 @@ import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.SkeletonBlock
-import com.example.stickermaker.ui.components.StickerBottomSheet
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
 import com.example.stickermaker.ui.components.ToastHost
@@ -54,7 +52,7 @@ import kotlinx.coroutines.launch
 
 /** Compose the cut-outs into one sticker: place, size, turn and restack the layers. */
 @Composable
-fun CombineScreen(onBack: () -> Unit) {
+fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
     val vm = appViewModel { CombineViewModel(it.session) }
     val state by vm.state.collectAsStateWithLifecycle()
     val toasts = rememberToastState()
@@ -147,45 +145,11 @@ fun CombineScreen(onBack: () -> Unit) {
             }
             ChunkyButton(
                 text = "Save sticker",
-                onClick = vm::flatten,
+                onClick = { vm.flatten(onSave) },
                 icon = R.drawable.ic_check,
                 size = ChunkySize.Large,
                 enabled = state.layers.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-
-    state.result?.let { result ->
-        val image = remember(result) { result.asImageBitmap() }
-        StickerBottomSheet(onDismissRequest = vm::closeResult, title = "Your sticker") {
-            BrutalSurface(
-                modifier = Modifier.align(Alignment.CenterHorizontally).size(240.dp),
-                shape = Shapes.Small,
-                shadow = Dimens.ShadowM,
-            ) {
-                Image(
-                    image,
-                    contentDescription = "The combined sticker",
-                    modifier = Modifier.fillMaxSize().checkerboard(8.dp),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-            Text(
-                "512 × 512, transparent background, no border.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.inkMuted,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-            ChunkyButton(
-                text = "Looks good",
-                onClick = {
-                    vm.closeResult()
-                    scope.launch { toasts.show("Saving to a pack comes next") }
-                },
-                icon = R.drawable.ic_check,
-                size = ChunkySize.Medium,
-                modifier = Modifier.fillMaxWidth().padding(end = Dimens.ShadowM),
             )
         }
     }

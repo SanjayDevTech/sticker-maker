@@ -78,6 +78,12 @@ class StickerSession(context: Context) {
     private val _importFailures = MutableSharedFlow<Int>(extraBufferCapacity = 4)
     val importFailures: SharedFlow<Int> = _importFailures.asSharedFlow()
 
+    /** The pack these stickers are meant for (started from a pack's "Add stickers"), if any. */
+    val targetPackId = MutableStateFlow<String?>(null)
+
+    /** The flattened sticker from the combine canvas, waiting to be saved. */
+    var combined: Bitmap? = null
+
     /** Set when a share arrives from another app; AppNavigation opens the create flow and clears it. */
     val openRequested = MutableStateFlow(false)
 
@@ -86,9 +92,10 @@ class StickerSession(context: Context) {
         dir.deleteRecursively()
     }
 
-    /** Starts a fresh session with [uris] (from the in-app picker). */
-    fun startNew(uris: List<Uri>) {
+    /** Starts a fresh session with [uris] (from the in-app picker), optionally aimed at a pack. */
+    fun startNew(uris: List<Uri>, targetPackId: String? = null) {
         clear()
+        this.targetPackId.value = targetPackId
         add(uris)
     }
 
@@ -128,6 +135,8 @@ class StickerSession(context: Context) {
         val old = _images.value
         _images.value = emptyList()
         histories.clear()
+        targetPackId.value = null
+        combined = null
         mode.value = SessionMode.Separate
         scope.launch(maskIo) {
             old.forEach { it.file.delete(); maskFile(it).delete() }

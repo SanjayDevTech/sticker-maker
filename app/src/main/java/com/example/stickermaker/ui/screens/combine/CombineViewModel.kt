@@ -1,6 +1,5 @@
 package com.example.stickermaker.ui.screens.combine
 
-import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,8 +24,6 @@ data class CombineUiState(
     val selectedId: String? = null,
     /** Images left out because everything in them was erased (their numbers). */
     val empty: List<Int> = emptyList(),
-    /** The flattened sticker, while its preview is open. */
-    val result: Bitmap? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
 ) {
@@ -204,15 +201,14 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         commit(before)
     }
 
-    fun flatten() {
+    /** Flattens to the 512 sticker and hands it to the session for the Save screen. */
+    fun flatten(then: () -> Unit) {
         val layers = _state.value.layers
         viewModelScope.launch {
-            val bitmap = withContext(Dispatchers.Default) { Compositor.flatten(layers) }
-            _state.update { it.copy(result = bitmap) }
+            session.combined = withContext(Dispatchers.Default) { Compositor.flatten(layers) }
+            then()
         }
     }
-
-    fun closeResult() = _state.update { it.copy(result = null) }
 
     private companion object {
         const val TAG = "Combine"

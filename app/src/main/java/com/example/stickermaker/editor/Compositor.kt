@@ -136,14 +136,13 @@ object Compositor {
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
         val side = STICKER_PX.toFloat()
         for (layer in layers) {
-            // Big shrinks look jagged with bilinear alone: pre-shrink to about the drawn size.
+            // Big shrinks look jagged with bilinear alone: pre-shrink (in halves) to about the drawn size.
             val drawnWidth = layer.size * side
             val bitmap = if (drawnWidth < layer.bitmap.width / 2f) {
-                Bitmap.createScaledBitmap(
+                StickerExport.smoothScale(
                     layer.bitmap,
                     max(1, drawnWidth.roundToInt()),
                     max(1, (drawnWidth * layer.aspect).roundToInt()),
-                    true,
                 )
             } else {
                 layer.bitmap

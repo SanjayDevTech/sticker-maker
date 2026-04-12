@@ -26,6 +26,8 @@ import com.example.stickermaker.ui.components.LocalSharedTransitionScope
 import com.example.stickermaker.ui.screens.create.ArrangeScreen
 import com.example.stickermaker.ui.screens.combine.CombineScreen
 import com.example.stickermaker.ui.screens.designkit.DesignKitScreen
+import com.example.stickermaker.ui.screens.pack.PackScreen
+import com.example.stickermaker.ui.screens.save.SaveScreen
 import com.example.stickermaker.ui.screens.editor.EditorScreen
 import com.example.stickermaker.ui.screens.home.HomeScreen
 import com.example.stickermaker.ui.screens.settings.SettingsScreen
@@ -71,6 +73,7 @@ fun AppNavigation() {
                         HomeScreen(
                             onOpenSettings = { backStack.push(SettingsRoute) },
                             onOpenCreate = { backStack.push(ArrangeRoute) },
+                            onOpenPack = { backStack.push(PackRoute(it)) },
                         )
                     }
                     entry<SettingsRoute> {
@@ -92,10 +95,31 @@ fun AppNavigation() {
                         EditorScreen(
                             onBack = { backStack.removeLastOrNull() },
                             onCombine = { backStack.push(CombineRoute) },
+                            onSave = { backStack.push(SaveRoute) },
                         )
                     }
                     entry<CombineRoute> {
-                        CombineScreen(onBack = { backStack.removeLastOrNull() })
+                        CombineScreen(
+                            onBack = { backStack.removeLastOrNull() },
+                            onSave = { backStack.push(SaveRoute) },
+                        )
+                    }
+                    entry<SaveRoute> {
+                        SaveScreen(
+                            onBack = { backStack.removeLastOrNull() },
+                            // The create flow is done: Home underneath, the pack on top.
+                            onSaved = { packId ->
+                                while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+                                backStack.push(PackRoute(packId))
+                            },
+                        )
+                    }
+                    entry<PackRoute> { route ->
+                        PackScreen(
+                            packId = route.packId,
+                            onBack = { backStack.removeLastOrNull() },
+                            onAddStickers = { backStack.push(ArrangeRoute) },
+                        )
                     }
                     entry<DesignKitRoute> {
                         DesignKitScreen(onBack = { backStack.removeLastOrNull() })

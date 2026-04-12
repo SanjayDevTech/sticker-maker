@@ -9,3 +9,5 @@ import kotlinx.serialization.Serializable
 @Serializable data object ArrangeRoute : NavKey
 @Serializable data object EditorRoute : NavKey
 @Serializable data object CombineRoute : NavKey
+@Serializable data object SaveRoute : NavKey
+@Serializable data class PackRoute(val packId: String) : NavKey

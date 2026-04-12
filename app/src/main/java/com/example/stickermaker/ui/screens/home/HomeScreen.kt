@@ -1,5 +1,16 @@
 package com.example.stickermaker.ui.screens.home
 
+import com.example.stickermaker.ui.components.showUndo
+import com.example.stickermaker.ui.components.checkerboard
+import com.example.stickermaker.ui.components.SkeletonBlock
+import com.example.stickermaker.ui.components.FileImage
+import com.example.stickermaker.data.StickerPack
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,17 +63,28 @@ import com.example.stickermaker.ui.theme.Palette
 import com.example.stickermaker.ui.theme.Shapes
 import kotlinx.coroutines.launch
 
-/** Placeholder home: the real content arrives with the app's purpose. */
+/** Home: start new stickers, and every pack made so far under Recent. */
 @Composable
 fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenCreate: () -> Unit,
+    onOpenPack: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val toasts = rememberToastState()
     val scope = rememberCoroutineScope()
     var showStartSheet by rememberSaveable { mutableStateOf(false) }
-    val session = LocalAppContainer.current.session
+    val container = LocalAppContainer.current
+    val session = container.session
+    val packs by container.packs.packs.collectAsStateWithLifecycle()
+
+    // A pack deleted on its own screen comes back here with an Undo.
+    val removed by container.packs.recentlyRemoved.collectAsStateWithLifecycle()
+    LaunchedEffect(removed) {
+        val pack = removed ?: return@LaunchedEffect
+        container.packs.recentlyRemoved.value = null
+        launch { if (toasts.showUndo("“${pack.name}” deleted")) container.packs.restorePack(pack) }
+    }
     // System photo picker: no storage permission, multi-select up to a full pack.
     val pickPhotos = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = WhatsAppLimits.MAX_STICKERS),
@@ -101,7 +123,7 @@ fun HomeScreen(
                 Box(Modifier.fillMaxWidth()) {
                     Text("Make it\nstick.", style = MaterialTheme.typography.displayLarge)
                     StickerTag(
-                        "soon",
+                        "no border!",
                         Palette.Pink,
                         rotation = 8f,
                         modifier = Modifier
@@ -119,7 +141,7 @@ fun HomeScreen(
                 ) {
                     Text("Your sticker studio", style = MaterialTheme.typography.headlineMedium)
                     Text(
-                        "This is the foundation. The real thing lands in the next iteration.",
+                        "Cut out anything, keep the transparency, skip the forced white border. Straight into WhatsApp.",
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     ChunkyButton(
@@ -136,13 +158,27 @@ fun HomeScreen(
                 }
             }
             item(key = "recent-title", contentType = "section-title") { SectionTitle("Recent", Modifier.staggeredEntrance(1)) }
-            item(key = "recent-empty", contentType = "empty-state") {
-                EmptyState(
-                    icon = R.drawable.ic_star,
-                    title = "Nothing here yet",
-                    message = "Stickers you make will pile up here.",
-                    modifier = Modifier.staggeredEntrance(2),
-                )
+            val list = packs
+            when {
+                list == null -> item(key = "recent-loading", contentType = "skeleton") {
+                    SkeletonBlock(Modifier.fillMaxWidth().height(96.dp), Shapes.Large)
+                }
+                list.isEmpty() -> item(key = "recent-empty", contentType = "empty-state") {
+                    EmptyState(
+                        icon = R.drawable.ic_star,
+                        title = "Nothing here yet",
+                        message = "Stickers you make will pile up here.",
+                        modifier = Modifier.staggeredEntrance(2),
+                    )
+                }
+                else -> itemsIndexed(list, key = { _, it -> it.id }, contentType = { _, _ -> "pack" }) { index, pack ->
+                    PackCard(
+                        pack = pack,
+                        color = PACK_COLORS[index % PACK_COLORS.size],
+                        onClick = { onOpenPack(pack.id) },
+                        modifier = Modifier.animateItem().staggeredEntrance(index + 2),
+                    )
+                }
             }
         }
     }
@@ -193,3 +229,45 @@ private fun StartOption(icon: Int, title: String, subtitle: String, color: Color
         }
     }
 }
+
+private val PACK_COLORS = listOf(Palette.Mint, Palette.Pink, Palette.Sky, Palette.Peach, Palette.Lime, Palette.Lavender)
+
+@Composable
+private fun PackCard(pack: StickerPack, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val files = LocalAppContainer.current.packs
+    BrutalSurface(
+        modifier = modifier.fillMaxWidth(),
+        shape = Shapes.Large,
+        color = color,
+        shadow = Dimens.ShadowM,
+        onClick = onClick,
+        onClickLabel = "Open ${pack.name}",
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space8)) {
+                Text(pack.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, modifier = Modifier.weight(1f))
+                StickerTag(
+                    if (pack.canAddToWhatsApp) "${pack.stickers.size} · ready" else "${pack.stickers.size} · needs ${pack.stickersNeeded}",
+                    if (pack.canAddToWhatsApp) Palette.Lime else Palette.Yellow,
+                    rotation = 3f,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space8)) {
+                val shown = pack.stickers.take(PREVIEW_COUNT)
+                shown.forEach { sticker ->
+                    BrutalSurface(Modifier.weight(1f).aspectRatio(1f), shape = Shapes.Small, shadow = 0.dp) {
+                        FileImage(
+                            file = files.stickerFile(pack.id, sticker.id),
+                            maxPx = 192,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize().checkerboard(5.dp),
+                        )
+                    }
+                }
+                repeat(PREVIEW_COUNT - shown.size) { Box(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+private const val PREVIEW_COUNT = 5

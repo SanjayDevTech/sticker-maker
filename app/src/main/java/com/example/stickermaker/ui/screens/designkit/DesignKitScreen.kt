@@ -46,6 +46,7 @@ import com.example.stickermaker.ui.components.StickerCard
 import com.example.stickermaker.ui.components.ToastHost
 import com.example.stickermaker.ui.components.rememberToastState
 import com.example.stickermaker.ui.components.BrutalSlider
+import com.example.stickermaker.ui.components.BrutalTextField
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
 import com.example.stickermaker.ui.components.rememberCollapsed
@@ -160,6 +161,12 @@ fun DesignKitScreen(onBack: () -> Unit) {
                     BrutalSlider(value = level, onValueChange = { level = it }, modifier = Modifier.weight(1f))
                     Text("${(level * 100).roundToInt()}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(40.dp))
                 }
+            }
+
+            item(key = "field-title", contentType = "section-title") { SectionTitle("Text field", Modifier.padding(top = Dimens.Space8)) }
+            item(key = "field", contentType = "demo-block") {
+                var text by rememberSaveable { mutableStateOf("") }
+                BrutalTextField(value = text, onValueChange = { text = it }, placeholder = "Name your pack", modifier = Modifier.padding(end = Dimens.ShadowS))
             }
 
             item(key = "blocks-title", contentType = "section-title") { SectionTitle("Blocks & tags", Modifier.staggeredEntrance(4)) }
