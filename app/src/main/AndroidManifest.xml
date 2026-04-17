@@ -30,6 +30,20 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
+
+        <!-- WhatsApp reads packs from here; only it holds this permission. -->
+        <provider
+            android:name=".whatsapp.StickerContentProvider"
+            android:authorities="${applicationId}.stickercontentprovider"
+            android:enabled="true"
+            android:exported="true"
+            android:readPermission="com.whatsapp.sticker.READ" />
     </application>
+
+    <!-- To check whether WhatsApp (or WhatsApp Business) is installed and has a pack. -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
 
 </manifest>

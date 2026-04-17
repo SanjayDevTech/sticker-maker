@@ -1,5 +1,10 @@
 package com.example.stickermaker.ui.screens.pack
 
+import com.example.stickermaker.whatsapp.WhatsApp
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalContext
+import android.content.ActivityNotFoundException
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -95,6 +100,38 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
         return
     }
 
+    val context = LocalContext.current
+    // Whether WhatsApp already has this pack; re-checked whenever the pack changes or we return.
+    var whatsApp by remember { mutableStateOf<WhatsApp.Status?>(null) }
+    var checks by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pack.id, pack.imageDataVersion, pack.canAddToWhatsApp, checks) {
+        whatsApp = WhatsApp.status(context, pack.id)
+    }
+    val addToWhatsApp = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        checks++
+        val error = result.data?.getStringExtra(WhatsApp.EXTRA_VALIDATION_ERROR)
+        scope.launch {
+            when {
+                result.resultCode == Activity.RESULT_OK -> toasts.show("Added to WhatsApp!")
+                // WhatsApp's own reason, word for word: the most useful thing to see if it happens.
+                error != null -> toasts.show("WhatsApp said: $error")
+                else -> toasts.show("Not added")
+            }
+        }
+    }
+    fun launchAddToWhatsApp() {
+        when (val status = whatsApp) {
+            WhatsApp.Status.NotInstalled -> scope.launch { toasts.show("WhatsApp isn't installed") }
+            WhatsApp.Status.Added -> scope.launch { toasts.show("Already in WhatsApp. Changes show up there on their own.") }
+            is WhatsApp.Status.NotAdded -> try {
+                addToWhatsApp.launch(WhatsApp.addIntent(context, pack.id, pack.name, status.onlyTo))
+            } catch (_: ActivityNotFoundException) {
+                scope.launch { toasts.show("This WhatsApp can't take sticker packs") }
+            }
+            null -> Unit
+        }
+    }
+
     val pick = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = WhatsAppLimits.MAX_STICKERS),
     ) { uris ->
@@ -143,7 +180,8 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                 Header(
                     pack = pack,
                     onRename = { renaming = true },
-                    onAddToWhatsApp = { scope.launch { toasts.show("Sending to WhatsApp comes next") } },
+                    inWhatsApp = whatsApp == WhatsApp.Status.Added,
+                    onAddToWhatsApp = ::launchAddToWhatsApp,
                 )
             }
             itemsIndexed(pack.stickers, key = { _, it -> it.id }, contentType = { _, _ -> "sticker" }) { index, sticker ->
@@ -196,7 +234,7 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
 }
 
 @Composable
-private fun Header(pack: StickerPack, onRename: () -> Unit, onAddToWhatsApp: () -> Unit) {
+private fun Header(pack: StickerPack, inWhatsApp: Boolean, onRename: () -> Unit, onAddToWhatsApp: () -> Unit) {
     val colors = AppTheme.colors
     Column(
         verticalArrangement = Arrangement.spacedBy(Dimens.Space12),
@@ -214,7 +252,9 @@ private fun Header(pack: StickerPack, onRename: () -> Unit, onAddToWhatsApp: () 
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space8), verticalAlignment = Alignment.CenterVertically) {
             StickerTag("${pack.stickers.size} / ${WhatsAppLimits.MAX_STICKERS}", Palette.Yellow, rotation = -3f)
-            if (pack.canAddToWhatsApp) {
+            if (inWhatsApp) {
+                StickerTag("In WhatsApp", Palette.Mint, rotation = 2f)
+            } else if (pack.canAddToWhatsApp) {
                 StickerTag("Ready for WhatsApp", Palette.Lime, rotation = 2f)
             } else {
                 StickerTag(
@@ -225,12 +265,16 @@ private fun Header(pack: StickerPack, onRename: () -> Unit, onAddToWhatsApp: () 
             }
         }
         ChunkyButton(
-            text = if (pack.canAddToWhatsApp) "Add to WhatsApp" else "Add ${pack.stickersNeeded} more for WhatsApp",
+            text = when {
+                inWhatsApp -> "In WhatsApp"
+                pack.canAddToWhatsApp -> "Add to WhatsApp"
+                else -> "Add ${pack.stickersNeeded} more for WhatsApp"
+            },
             onClick = onAddToWhatsApp,
             icon = R.drawable.ic_check,
             color = Palette.Lime,
             size = ChunkySize.Large,
-            squiggly = pack.canAddToWhatsApp,
+            squiggly = pack.canAddToWhatsApp && !inWhatsApp,
             enabled = pack.canAddToWhatsApp,
             modifier = Modifier.fillMaxWidth().padding(top = Dimens.Space4, bottom = Dimens.ShadowM, end = Dimens.ShadowS),
         )
