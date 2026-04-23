@@ -110,6 +110,14 @@ class SaveViewModel(
         }
     }
 
+    /** The stickers as they'd be saved (outline included), for sending without a pack. */
+    suspend fun stickersToSend(): List<Bitmap> =
+        if (local.value.outline) {
+            outlined ?: withContext(Dispatchers.Default) { plain.map(StickerExport::withOutline) }.also { outlined = it }
+        } else {
+            plain
+        }
+
     fun setTarget(id: String?) = local.update { it.copy(targetId = id) }
     fun setNewName(name: String) = local.update { it.copy(newName = name) }
 

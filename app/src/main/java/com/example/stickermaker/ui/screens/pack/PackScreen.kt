@@ -229,6 +229,15 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                 vm.setEmojis(emojiSticker.id, emojis)
                 emojiFor = null
             },
+            onSend = {
+                val intent = WhatsApp.sendIntent(context, listOf(container.packs.stickerFile(pack.id, emojiSticker.id)))
+                if (intent == null) {
+                    scope.launch { toasts.show("WhatsApp isn't installed") }
+                } else {
+                    emojiFor = null
+                    context.startActivity(intent)
+                }
+            },
         )
     }
 }
@@ -350,10 +359,16 @@ private val EMOJIS = listOf(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmojiSheet(packId: String, sticker: Sticker, onDismiss: () -> Unit, onDone: (List<String>) -> Unit) {
+private fun EmojiSheet(
+    packId: String,
+    sticker: Sticker,
+    onDismiss: () -> Unit,
+    onDone: (List<String>) -> Unit,
+    onSend: () -> Unit,
+) {
     val packs = LocalAppContainer.current.packs
     val chosen = remember(sticker.id) { mutableStateListOf<String>().apply { addAll(sticker.emojis) } }
-    StickerBottomSheet(onDismissRequest = onDismiss, title = "Emojis") {
+    StickerBottomSheet(onDismissRequest = onDismiss, title = "Sticker") {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space16)) {
             BrutalSurface(Modifier.size(96.dp), shape = Shapes.Medium, shadow = Dimens.ShadowS) {
                 FileImage(
@@ -399,11 +414,31 @@ private fun EmojiSheet(packId: String, sticker: Sticker, onDismiss: () -> Unit, 
                 }
             }
         }
-        ChunkyButton(
-            text = "Done",
-            onClick = { onDone(chosen.toList()) },
-            size = ChunkySize.Medium,
-            modifier = Modifier.fillMaxWidth().padding(end = Dimens.ShadowM, top = Dimens.Space8),
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+            modifier = Modifier.padding(end = Dimens.ShadowM, top = Dimens.Space8),
+        ) {
+            // Straight into a chat, no pack needed; from there it can be added to favourites.
+            ChunkyButton(
+                text = "Send",
+                onClick = onSend,
+                icon = R.drawable.ic_send,
+                color = Palette.Sky,
+                size = ChunkySize.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            ChunkyButton(
+                text = "Done",
+                onClick = { onDone(chosen.toList()) },
+                icon = R.drawable.ic_check,
+                size = ChunkySize.Medium,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Text(
+            "Send drops it into a WhatsApp chat as a sticker. Long-press it there and add it to favourites to keep it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = AppTheme.colors.inkMuted,
         )
     }
 }
