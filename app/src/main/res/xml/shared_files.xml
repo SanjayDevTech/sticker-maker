@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Files other apps (WhatsApp) may read when a sticker is sent: finished stickers only. -->
+<!-- Files an app may read when the sticker keyboard inserts a sticker: finished stickers only. -->
 <paths>
     <files-path name="packs" path="packs/" />
-    <cache-path name="send" path="send/" />
 </paths>

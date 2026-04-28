@@ -1,8 +1,5 @@
 package com.example.stickermaker.ui.screens.save
 
-import com.example.stickermaker.whatsapp.WhatsApp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -72,8 +69,6 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
     val toasts = rememberToastState()
     val colors = AppTheme.colors
     val scroll = rememberScrollState()
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
     LaunchedEffect(vm) {
         launch { vm.saved.collect(onSaved) }
@@ -96,41 +91,21 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
         },
         snackbarHost = { ToastHost(toasts) },
         bottomBar = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+            ChunkyButton(
+                text = when {
+                    state.saving -> "Saving…"
+                    state.count == 1 -> "Save sticker"
+                    else -> "Save ${state.count} stickers"
+                },
+                onClick = vm::save,
+                icon = R.drawable.ic_check,
+                size = ChunkySize.Large,
+                enabled = state.canSave,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
                     .padding(start = Dimens.ScreenGutter, end = Dimens.ScreenGutter + Dimens.ShadowM, bottom = 12.dp + Dimens.ShadowM),
-            ) {
-                // Send skips packs: the stickers go straight into a WhatsApp chat.
-                ChunkyButton(
-                    text = "Send",
-                    onClick = {
-                        scope.launch {
-                            val files = WhatsApp.writeForSending(context, vm.stickersToSend())
-                            val intent = WhatsApp.sendIntent(context, files)
-                            if (intent == null) toasts.show("WhatsApp isn't installed") else context.startActivity(intent)
-                        }
-                    },
-                    icon = R.drawable.ic_send,
-                    color = Palette.Sky,
-                    size = ChunkySize.Large,
-                    enabled = !state.loading && state.count > 0,
-                    modifier = Modifier.weight(0.42f),
-                )
-                ChunkyButton(
-                    text = when {
-                        state.saving -> "Saving…"
-                        else -> "Save"
-                    },
-                    onClick = vm::save,
-                    icon = R.drawable.ic_check,
-                    size = ChunkySize.Large,
-                    enabled = state.canSave,
-                    modifier = Modifier.weight(0.58f),
-                )
-            }
+            )
         },
     ) { padding ->
         Column(
@@ -153,8 +128,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 modifier = Modifier.padding(end = Dimens.ShadowS),
             )
             Text(
-                "WhatsApp's own maker forces a white border. Here it's your call. " +
-                    "Send drops these straight into a WhatsApp chat without making a pack.",
+                "WhatsApp's own maker forces a white border. Here it's your call.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.inkMuted,
             )

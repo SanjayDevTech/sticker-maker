@@ -3,10 +3,6 @@ package com.example.stickermaker.whatsapp
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import androidx.core.content.FileProvider
-import com.example.stickermaker.editor.StickerExport
-import java.io.File
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -57,35 +53,6 @@ object WhatsApp {
             .putExtra("sticker_pack_authority", authority(context))
             .putExtra("sticker_pack_name", packName)
         return if (onlyTo != null) intent.setPackage(onlyTo) else Intent.createChooser(intent, "Add to")
-    }
-
-    /**
-     * Sends sticker [files] (512 px WebP) into a WhatsApp chat; WhatsApp sends WebP images as
-     * stickers, and from the chat they can be added to favourites. No pack needed.
-     * Returns null when no WhatsApp is installed.
-     */
-    fun sendIntent(context: Context, files: List<File>): Intent? {
-        val target = listOf(CONSUMER, BUSINESS).firstOrNull { isInstalled(context, it) } ?: return null
-        val uris = files.map { FileProvider.getUriForFile(context, "${context.packageName}.files", it) }
-        val intent = if (uris.size == 1) {
-            Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
-        } else {
-            Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
-        }
-        return intent
-            .setType("image/webp")
-            .setPackage(target)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-
-    /** Writes [stickers] as WebP into a fresh cache folder for [sendIntent]. Off the main thread. */
-    suspend fun writeForSending(context: Context, stickers: List<Bitmap>): List<File> = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "send")
-        dir.deleteRecursively()
-        dir.mkdirs()
-        stickers.mapIndexed { i, bitmap ->
-            File(dir, "sticker_${i + 1}.webp").apply { writeBytes(StickerExport.encodeSticker(bitmap)) }
-        }
     }
 
     private fun isInstalled(context: Context, pkg: String): Boolean = try {

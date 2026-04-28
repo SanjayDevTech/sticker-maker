@@ -39,7 +39,7 @@
             android:exported="true"
             android:readPermission="com.whatsapp.sticker.READ" />
 
-        <!-- Hands single sticker files to WhatsApp when sending into a chat. -->
+        <!-- Hands sticker files (read-only, per insert) to the app the sticker keyboard types into. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"
