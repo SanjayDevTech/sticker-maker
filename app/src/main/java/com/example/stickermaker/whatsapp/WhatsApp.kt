@@ -1,6 +1,11 @@
 package com.example.stickermaker.whatsapp
 
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
+import androidx.core.content.FileProvider
+import java.io.File
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -53,6 +58,16 @@ object WhatsApp {
             .putExtra("sticker_pack_authority", authority(context))
             .putExtra("sticker_pack_name", packName)
         return if (onlyTo != null) intent.setPackage(onlyTo) else Intent.createChooser(intent, "Add to")
+    }
+
+    /**
+     * Puts a sticker file on the clipboard labelled with WhatsApp's sticker type, so pasting it
+     * into a chat may arrive as a sticker (the same type the keyboard route uses).
+     */
+    fun copySticker(context: Context, file: File) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        val clip = ClipData(ClipDescription("Sticker", arrayOf("image/webp.wasticker", "image/webp")), ClipData.Item(uri))
+        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
     }
 
     private fun isInstalled(context: Context, pkg: String): Boolean = try {

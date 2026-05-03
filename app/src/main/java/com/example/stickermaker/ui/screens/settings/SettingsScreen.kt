@@ -1,5 +1,15 @@
 package com.example.stickermaker.ui.screens.settings
 
+import com.example.stickermaker.ui.components.ChunkySize
+import com.example.stickermaker.ui.components.ChunkyButton
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.compose.ui.platform.LocalContext
+import android.view.inputmethod.InputMethodManager
+import android.provider.Settings
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -112,6 +122,8 @@ private fun SettingsContent(
                     modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowS),
                 )
             }
+            SectionTitle("Sticker keyboard", Modifier.staggeredEntrance(2))
+            StickerKeyboardCard(Modifier.staggeredEntrance(2).fillMaxWidth())
             SectionTitle("Under the hood", Modifier.staggeredEntrance(2))
             BrutalSurface(
                 modifier = Modifier
@@ -141,5 +153,39 @@ private fun SettingsContent(
                 StickerTag("v${rememberVersionName()}", Palette.Lime, rotation = 3f)
             }
         }
+    }
+}
+
+/**
+ * Whether the sticker keyboard is turned on, with a way to Android's keyboard settings.
+ * Re-checked each time the screen resumes (the user comes back from those settings).
+ */
+@Composable
+private fun StickerKeyboardCard(modifier: Modifier) {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        val imm = context.getSystemService(InputMethodManager::class.java)
+        enabled = imm.enabledInputMethodList.any { it.packageName == context.packageName }
+        onPauseOrDispose {}
+    }
+    StickerCard(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space8)) {
+            Text("Send single stickers", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            StickerTag(if (enabled) "On" else "Off", if (enabled) Palette.Lime else Palette.Peach, rotation = 3f)
+        }
+        Text(
+            "WhatsApp only takes packs of 3 or more from other apps. The sticker keyboard sends any " +
+                "one sticker as a real sticker: in a chat, switch to it, tap a sticker, then switch back.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = AppTheme.colors.inkMuted,
+        )
+        ChunkyButton(
+            text = if (enabled) "Keyboard settings" else "Turn it on",
+            onClick = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
+            size = ChunkySize.Medium,
+            color = Palette.Sky,
+            modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowM, bottom = Dimens.ShadowM),
+        )
     }
 }

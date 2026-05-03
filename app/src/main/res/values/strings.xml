@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Sticker Maker</string>
+    <string name="sticker_keyboard">Sticker Maker stickers</string>
 </resources>

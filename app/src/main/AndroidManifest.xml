@@ -39,6 +39,20 @@
             android:exported="true"
             android:readPermission="com.whatsapp.sticker.READ" />
 
+        <!-- The sticker keyboard: inserts stickers into chats the way Gboard does. -->
+        <service
+            android:name=".keyboard.StickerKeyboardService"
+            android:label="@string/sticker_keyboard"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/sticker_keyboard" />
+        </service>
+
         <!-- Hands sticker files (read-only, per insert) to the app the sticker keyboard types into. -->
         <provider
             android:name="androidx.core.content.FileProvider"

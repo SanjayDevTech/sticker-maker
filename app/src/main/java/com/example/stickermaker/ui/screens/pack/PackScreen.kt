@@ -229,6 +229,11 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                 vm.setEmojis(emojiSticker.id, emojis)
                 emojiFor = null
             },
+            onCopy = {
+                WhatsApp.copySticker(context, container.packs.stickerFile(pack.id, emojiSticker.id))
+                emojiFor = null
+                scope.launch { toasts.show("Copied. Long-press a chat box and Paste.") }
+            },
         )
     }
 }
@@ -350,7 +355,13 @@ private val EMOJIS = listOf(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmojiSheet(packId: String, sticker: Sticker, onDismiss: () -> Unit, onDone: (List<String>) -> Unit) {
+private fun EmojiSheet(
+    packId: String,
+    sticker: Sticker,
+    onDismiss: () -> Unit,
+    onDone: (List<String>) -> Unit,
+    onCopy: () -> Unit,
+) {
     val packs = LocalAppContainer.current.packs
     val chosen = remember(sticker.id) { mutableStateListOf<String>().apply { addAll(sticker.emojis) } }
     StickerBottomSheet(onDismissRequest = onDismiss, title = "Emojis") {
@@ -399,11 +410,24 @@ private fun EmojiSheet(packId: String, sticker: Sticker, onDismiss: () -> Unit, 
                 }
             }
         }
-        ChunkyButton(
-            text = "Done",
-            onClick = { onDone(chosen.toList()) },
-            size = ChunkySize.Medium,
-            modifier = Modifier.fillMaxWidth().padding(end = Dimens.ShadowM, top = Dimens.Space8),
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+            modifier = Modifier.padding(end = Dimens.ShadowM, top = Dimens.Space8),
+        ) {
+            ChunkyButton(
+                text = "Copy",
+                onClick = onCopy,
+                color = Palette.Sky,
+                size = ChunkySize.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            ChunkyButton(
+                text = "Done",
+                onClick = { onDone(chosen.toList()) },
+                icon = R.drawable.ic_check,
+                size = ChunkySize.Medium,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
