@@ -189,6 +189,10 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                     packId = pack.id,
                     sticker = sticker,
                     onClick = { emojiFor = sticker.id },
+                    onLongClick = {
+                        WhatsApp.copySticker(context, container.packs.stickerFile(pack.id, sticker.id))
+                        scope.launch { toasts.show("Copied. Paste it in a chat.") }
+                    },
                     onRemove = { remove(sticker) },
                     modifier = Modifier.animateItem(fadeInSpec = null).staggeredEntrance(index),
                 )
@@ -284,7 +288,7 @@ private fun Header(pack: StickerPack, inWhatsApp: Boolean, onRename: () -> Unit,
             modifier = Modifier.fillMaxWidth().padding(top = Dimens.Space4, bottom = Dimens.ShadowM, end = Dimens.ShadowS),
         )
         Text(
-            "Tap a sticker to set the emojis WhatsApp suggests it for. Tap the name to rename.",
+            "Long-press a sticker to copy it, then paste into any WhatsApp chat. Tap one for its emojis; tap the name to rename.",
             style = MaterialTheme.typography.bodyMedium,
             color = colors.inkMuted,
         )
@@ -292,7 +296,14 @@ private fun Header(pack: StickerPack, inWhatsApp: Boolean, onRename: () -> Unit,
 }
 
 @Composable
-private fun StickerTile(packId: String, sticker: Sticker, onClick: () -> Unit, onRemove: () -> Unit, modifier: Modifier) {
+private fun StickerTile(
+    packId: String,
+    sticker: Sticker,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier,
+) {
     val packs = LocalAppContainer.current.packs
     Box(modifier.aspectRatio(1f)) {
         BrutalSurface(
@@ -301,6 +312,8 @@ private fun StickerTile(packId: String, sticker: Sticker, onClick: () -> Unit, o
             shadow = Dimens.ShadowS,
             onClick = onClick,
             onClickLabel = "Set emojis",
+            onLongClick = onLongClick,
+            onLongClickLabel = "Copy sticker",
         ) {
             FileImage(
                 file = packs.stickerFile(packId, sticker.id),

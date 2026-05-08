@@ -2,4 +2,6 @@
 <!-- Files an app may read when the sticker keyboard inserts a sticker: finished stickers only. -->
 <paths>
     <files-path name="packs" path="packs/" />
+    <!-- An unsaved sticker copied from the Save screen. -->
+    <cache-path name="copy" path="copy/" />
 </paths>

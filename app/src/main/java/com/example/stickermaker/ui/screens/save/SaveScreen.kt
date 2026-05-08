@@ -1,5 +1,8 @@
 package com.example.stickermaker.ui.screens.save
 
+import com.example.stickermaker.whatsapp.WhatsApp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -69,6 +72,16 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
     val toasts = rememberToastState()
     val colors = AppTheme.colors
     val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    fun copy(index: Int) {
+        scope.launch {
+            val sticker = vm.stickerAt(index) ?: return@launch
+            WhatsApp.copySticker(context, sticker)
+            toasts.show(if (state.count > 1) "Sticker ${index + 1} copied. Paste it in a chat." else "Copied. Paste it in a chat.")
+        }
+    }
 
     LaunchedEffect(vm) {
         launch { vm.saved.collect(onSaved) }
@@ -91,21 +104,37 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
         },
         snackbarHost = { ToastHost(toasts) },
         bottomBar = {
-            ChunkyButton(
-                text = when {
-                    state.saving -> "Saving…"
-                    state.count == 1 -> "Save sticker"
-                    else -> "Save ${state.count} stickers"
-                },
-                onClick = vm::save,
-                icon = R.drawable.ic_check,
-                size = ChunkySize.Large,
-                enabled = state.canSave,
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
                     .padding(start = Dimens.ScreenGutter, end = Dimens.ScreenGutter + Dimens.ShadowM, bottom = 12.dp + Dimens.ShadowM),
-            )
+            ) {
+                // One sticker: Copy sits next to Save. Several: each preview tile copies itself.
+                if (state.count == 1) {
+                    ChunkyButton(
+                        text = "Copy",
+                        onClick = { copy(0) },
+                        color = Palette.Sky,
+                        size = ChunkySize.Large,
+                        enabled = !state.loading,
+                        modifier = Modifier.weight(0.4f),
+                    )
+                }
+                ChunkyButton(
+                    text = when {
+                        state.saving -> "Saving…"
+                        state.count <= 1 -> "Save"
+                        else -> "Save ${state.count} stickers"
+                    },
+                    onClick = vm::save,
+                    icon = R.drawable.ic_check,
+                    size = ChunkySize.Large,
+                    enabled = state.canSave,
+                    modifier = Modifier.weight(0.6f),
+                )
+            }
         },
     ) { padding ->
         Column(
@@ -117,7 +146,16 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
         ) {
             Text("Save", style = MaterialTheme.typography.displayMedium)
-            Previews(state.loading, state.previews)
+            Previews(state.loading, state.previews, onCopy = ::copy)
+            Text(
+                if (state.count > 1) {
+                    "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed."
+                } else {
+                    "Copy, then paste into a WhatsApp chat: it arrives as a sticker. No pack needed."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.inkMuted,
+            )
 
             SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))
             SegmentedPicker(
@@ -176,7 +214,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Previews(loading: Boolean, previews: List<ImageBitmap>) {
+private fun Previews(loading: Boolean, previews: List<ImageBitmap>, onCopy: (Int) -> Unit) {
     val perRow = 3
     if (loading) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -194,6 +232,8 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>) {
                 modifier = Modifier.weight(1f).aspectRatio(1f),
                 shape = Shapes.Medium,
                 shadow = Dimens.ShadowS,
+                onClick = { onCopy(i) },
+                onClickLabel = "Copy sticker ${i + 1}",
             ) {
                 Image(
                     image,

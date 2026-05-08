@@ -8,6 +8,8 @@ import androidx.core.content.FileProvider
 import java.io.File
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import com.example.stickermaker.editor.StickerExport
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -61,13 +63,26 @@ object WhatsApp {
     }
 
     /**
-     * Puts a sticker file on the clipboard labelled with WhatsApp's sticker type, so pasting it
-     * into a chat may arrive as a sticker (the same type the keyboard route uses).
+     * Puts a sticker file on the clipboard labelled with WhatsApp's sticker type. Pasting it
+     * into a WhatsApp chat arrives as a real sticker (verified on a Pixel 9): the way to send
+     * one sticker without a pack.
      */
     fun copySticker(context: Context, file: File) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
         val clip = ClipData(ClipDescription("Sticker", arrayOf("image/webp.wasticker", "image/webp")), ClipData.Item(uri))
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+    }
+
+    /** Copies an unsaved sticker: written to the cache first, since the clipboard holds a file link. */
+    suspend fun copySticker(context: Context, sticker: Bitmap) {
+        val file = withContext(Dispatchers.IO) {
+            val dir = File(context.cacheDir, "copy")
+            // Only the latest copy matters; older clipboard links may go stale.
+            dir.deleteRecursively()
+            dir.mkdirs()
+            File(dir, "sticker_${System.currentTimeMillis()}.webp").apply { writeBytes(StickerExport.encodeSticker(sticker)) }
+        }
+        copySticker(context, file)
     }
 
     private fun isInstalled(context: Context, pkg: String): Boolean = try {

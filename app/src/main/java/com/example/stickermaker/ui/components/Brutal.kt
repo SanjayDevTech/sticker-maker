@@ -2,6 +2,7 @@ package com.example.stickermaker.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
@@ -94,6 +95,8 @@ fun BrutalSurface(
     shadow: Dp = Dimens.ShadowM,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     enabled: Boolean = true,
     role: Role = Role.Button,
     propagateMinConstraints: Boolean = false,
@@ -118,7 +121,18 @@ fun BrutalSurface(
         }
     }
 
-    val clickModifier = if (onClick != null) {
+    val clickModifier = if (onClick != null && onLongClick != null) {
+        Modifier.combinedClickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            onClickLabel = onClickLabel,
+            role = role,
+            onLongClickLabel = onLongClickLabel,
+            onLongClick = onLongClick,
+            onClick = onClick,
+        )
+    } else if (onClick != null) {
         Modifier.clickable(
             interactionSource = interactionSource,
             indication = null,
