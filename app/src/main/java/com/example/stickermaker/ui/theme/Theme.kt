@@ -5,6 +5,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -61,6 +62,8 @@ private fun StickerColors.toMaterial(): ColorScheme {
 @Composable
 fun StickerTheme(
     darkTheme: Boolean,
+    /** False for UI that isn't a screen (the sticker keyboard), which must size to its content. */
+    fillScreen: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val colors = if (darkTheme) DarkStickerColors else LightStickerColors
@@ -74,12 +77,16 @@ fun StickerTheme(
             motionScheme = MotionScheme.expressive(),
         ) {
             // Opaque root so screen transitions never reveal the bare window behind them.
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = colors.canvas,
-                contentColor = colors.ink,
-                content = content,
-            )
+            if (fillScreen) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = colors.canvas,
+                    contentColor = colors.ink,
+                    content = content,
+                )
+            } else {
+                CompositionLocalProvider(LocalContentColor provides colors.ink, content = content)
+            }
         }
     }
 }

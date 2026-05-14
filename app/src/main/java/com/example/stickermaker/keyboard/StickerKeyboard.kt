@@ -1,5 +1,7 @@
 package com.example.stickermaker.keyboard
 
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,17 +59,22 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
         else -> isSystemInDarkTheme()
     }
     CompositionLocalProvider(LocalAppContainer provides container) {
-        StickerTheme(darkTheme = dark) {
+        StickerTheme(darkTheme = dark, fillScreen = false) {
             val colors = AppTheme.colors
             val packs by container.packs.packs.collectAsStateWithLifecycle()
             val list = packs.orEmpty().filter { it.stickers.isNotEmpty() }
             var selectedId by remember { mutableStateOf<String?>(null) }
             val selected = list.firstOrNull { it.id == selectedId } ?: list.firstOrNull()
 
+            // A fixed height: the keyboard window never resizes (that's what made dragging it
+            // sluggish), and the grid scrolls inside it.
+            val height = with(LocalDensity.current) {
+                (LocalContext.current.resources.displayMetrics.heightPixels * HEIGHT_FRACTION).toDp()
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .height(KEYBOARD_HEIGHT)
+                    .height(height)
                     .background(colors.canvas)
                     .navigationBarsPadding(),
             ) {
@@ -144,4 +151,4 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
     }
 }
 
-private val KEYBOARD_HEIGHT = 300.dp
+private const val HEIGHT_FRACTION = 0.45f

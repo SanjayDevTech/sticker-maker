@@ -71,15 +71,22 @@ class StickerKeyboardService : InputMethodService(), LifecycleOwner, SavedStateR
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        // Also called from super.onDestroy(); only pause what is actually running.
+        if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        }
         super.onFinishInputView(finishingInput)
     }
 
     override fun onDestroy() {
+        // super first: it finishes the input view, which still needs a live lifecycle.
+        super.onDestroy()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         viewModelStore.clear()
-        super.onDestroy()
     }
+
+    /** Never the landscape "extract" mode that covers the app with a text box; it's a panel. */
+    override fun onEvaluateFullscreenMode(): Boolean = false
 
     /** Inserts a sticker file into the focused field, as the best type that field accepts. */
     private fun insert(file: File) {
