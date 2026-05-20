@@ -47,11 +47,12 @@ import com.example.stickermaker.ui.theme.Dimens
 import com.example.stickermaker.ui.theme.Palette
 import com.example.stickermaker.ui.theme.Shapes
 import com.example.stickermaker.ui.theme.StickerTheme
-import java.io.File
+import com.example.stickermaker.data.Sticker
+import com.example.stickermaker.data.StickerPack
 
 /** The keyboard's panel: pack tabs on top, that pack's stickers below; tap to insert. */
 @Composable
-fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackToKeyboard: () -> Unit) {
+fun StickerKeyboard(container: AppContainer, onSticker: (StickerPack, Sticker) -> Unit, onBackToKeyboard: () -> Unit) {
     val mode by container.settings.themeMode.collectAsStateWithLifecycle(ThemeMode.System)
     val dark = when (mode) {
         ThemeMode.Light -> false
@@ -133,7 +134,7 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
                                 shape = Shapes.Medium,
                                 color = colors.surface,
                                 shadow = Dimens.ShadowS,
-                                onClick = { onSticker(file) },
+                                onClick = { onSticker(selected, sticker) },
                                 onClickLabel = "Insert sticker",
                             ) {
                                 FileImage(

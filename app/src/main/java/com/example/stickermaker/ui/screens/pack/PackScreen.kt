@@ -1,5 +1,6 @@
 package com.example.stickermaker.ui.screens.pack
 
+import com.example.stickermaker.whatsapp.StickerShare
 import com.example.stickermaker.whatsapp.WhatsApp
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.platform.LocalContext
@@ -190,8 +191,10 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                     sticker = sticker,
                     onClick = { emojiFor = sticker.id },
                     onLongClick = {
-                        WhatsApp.copySticker(context, container.packs.stickerFile(pack.id, sticker.id))
-                        scope.launch { toasts.show("Copied. Paste it in a chat.") }
+                        scope.launch {
+                            WhatsApp.copySticker(context, StickerShare.fromPack(context, container.packs, pack, sticker))
+                            toasts.show("Copied. Paste it in a chat.")
+                        }
                     },
                     onRemove = { remove(sticker) },
                     modifier = Modifier.animateItem(fadeInSpec = null).staggeredEntrance(index),
@@ -234,9 +237,11 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                 emojiFor = null
             },
             onCopy = {
-                WhatsApp.copySticker(context, container.packs.stickerFile(pack.id, emojiSticker.id))
                 emojiFor = null
-                scope.launch { toasts.show("Copied. Long-press a chat box and Paste.") }
+                scope.launch {
+                    WhatsApp.copySticker(context, StickerShare.fromPack(context, container.packs, pack, emojiSticker))
+                    toasts.show("Copied. Long-press a chat box and Paste.")
+                }
             },
         )
     }

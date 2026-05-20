@@ -1,5 +1,6 @@
 package com.example.stickermaker.ui.screens.save
 
+import com.example.stickermaker.whatsapp.StickerShare
 import com.example.stickermaker.whatsapp.WhatsApp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
@@ -78,7 +79,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
     fun copy(index: Int) {
         scope.launch {
             val sticker = vm.stickerAt(index) ?: return@launch
-            WhatsApp.copySticker(context, sticker)
+            WhatsApp.copySticker(context, StickerShare.unsaved(context, sticker))
             toasts.show(if (state.count > 1) "Sticker ${index + 1} copied. Paste it in a chat." else "Copied. Paste it in a chat.")
         }
     }
