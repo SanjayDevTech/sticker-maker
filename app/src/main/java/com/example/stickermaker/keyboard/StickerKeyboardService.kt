@@ -21,10 +21,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import androidx.lifecycle.lifecycleScope
 import com.example.stickermaker.StickerMakerApp
-import com.example.stickermaker.whatsapp.StickerShare
-import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -61,10 +58,7 @@ class StickerKeyboardService : InputMethodService(), LifecycleOwner, SavedStateR
             setContent {
                 StickerKeyboard(
                     container = container,
-                    onSticker = { pack, sticker ->
-                        // A cache copy carrying the pack, publisher and emojis, then insert it.
-                        lifecycleScope.launch { insert(StickerShare.fromPack(this@StickerKeyboardService, container.packs, pack, sticker)) }
-                    },
+                    onSticker = ::insert,
                     onBackToKeyboard = ::backToKeyboard,
                 )
             }

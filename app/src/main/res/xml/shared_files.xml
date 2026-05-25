@@ -2,6 +2,6 @@
 <!-- Files an app may read when the sticker keyboard inserts a sticker: finished stickers only. -->
 <paths>
     <files-path name="packs" path="packs/" />
-    <!-- Stickers copied or inserted, labelled with WhatsApp's sticker metadata. -->
-    <cache-path name="share" path="share/" />
+    <!-- An unsaved sticker copied from the Save screen. -->
+    <cache-path name="copy" path="copy/" />
 </paths>
