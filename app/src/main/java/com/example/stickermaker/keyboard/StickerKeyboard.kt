@@ -36,11 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.stickermaker.AppContainer
 import com.example.stickermaker.LocalAppContainer
-import com.example.stickermaker.R
 import com.example.stickermaker.data.ThemeMode
 import com.example.stickermaker.ui.components.BrutalSurface
 import com.example.stickermaker.ui.components.FileImage
-import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.PackTray
 import com.example.stickermaker.ui.theme.AppTheme
 import com.example.stickermaker.ui.theme.Dimens
@@ -83,7 +81,17 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Dimens.Space8),
                 ) {
-                    IconTile(R.drawable.ic_arrow_back, "Back to keyboard", onBackToKeyboard, size = 44.dp, color = Palette.Yellow)
+                    // The familiar "back to typing" key: returns to the previous keyboard (e.g. FUTO).
+                    BrutalSurface(
+                        modifier = Modifier.size(width = 64.dp, height = 44.dp),
+                        shape = Shapes.Small,
+                        color = Palette.Yellow,
+                        shadow = Dimens.ShadowS,
+                        onClick = onBackToKeyboard,
+                        onClickLabel = "Back to typing",
+                    ) {
+                        Text("ABC", style = MaterialTheme.typography.labelLarge, modifier = Modifier.align(Alignment.Center))
+                    }
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(Dimens.Space8),
                         contentPadding = PaddingValues(end = Dimens.ShadowS, bottom = Dimens.ShadowS, top = Dimens.Space4),
