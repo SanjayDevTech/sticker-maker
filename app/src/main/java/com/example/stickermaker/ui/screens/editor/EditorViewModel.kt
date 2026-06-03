@@ -30,7 +30,8 @@ data class EditorUiState(
     /** Null while the current image loads. */
     val engine: CutoutEngine? = null,
     val failed: Boolean = false,
-    val tool: EditTool = EditTool.Brush,
+    // Auto first: one tap on the background clears most photos; Brush is for touch-ups.
+    val tool: EditTool = EditTool.Auto,
     /** Erase, or restore (the "inverse" of every tool). */
     val erase: Boolean = true,
     /** Slider position 0..1; see [brushPx]. */
