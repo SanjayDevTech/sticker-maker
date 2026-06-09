@@ -44,4 +44,12 @@ data class StickerPack(
 }
 
 @Serializable
-internal data class PackIndex(val packs: List<StickerPack> = emptyList())
+internal data class PackIndex(
+    val packs: List<StickerPack> = emptyList(),
+    /**
+     * Packs deleted in the app that WhatsApp may still have. WhatsApp keeps a pack it was given
+     * and reads it through our provider, so we keep serving these (hidden in the app) until
+     * WhatsApp no longer has them; otherwise it can neither use nor remove them.
+     */
+    val retired: List<StickerPack> = emptyList(),
+)

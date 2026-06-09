@@ -1,5 +1,7 @@
 package com.example.stickermaker.ui.screens.home
 
+import com.example.stickermaker.whatsapp.WhatsApp
+import androidx.compose.ui.platform.LocalContext
 import com.example.stickermaker.ui.components.showUndo
 import com.example.stickermaker.ui.components.checkerboard
 import com.example.stickermaker.ui.components.SkeletonBlock
@@ -77,6 +79,14 @@ fun HomeScreen(
     val container = LocalAppContainer.current
     val session = container.session
     val packs by container.packs.packs.collectAsStateWithLifecycle()
+
+    // Packs deleted here stay available to WhatsApp until it no longer has them; then forget them.
+    val context = LocalContext.current
+    LaunchedEffect(packs != null) {
+        if (packs != null) {
+            container.packs.purgeRetired { WhatsApp.status(context, it.id) == WhatsApp.Status.Added }
+        }
+    }
 
     // A pack deleted on its own screen comes back here with an Undo.
     val removed by container.packs.recentlyRemoved.collectAsStateWithLifecycle()

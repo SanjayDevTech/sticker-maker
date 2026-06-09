@@ -67,6 +67,24 @@ class PackRepository(context: Context) {
     fun packsBlocking(): List<StickerPack> =
         _packs.value ?: kotlinx.coroutines.runBlocking { mutex.withLock { load() } }
 
+    /** Deleted in the app, possibly still in WhatsApp: served to WhatsApp, hidden here. */
+    private var retired: List<StickerPack> = emptyList()
+
+    /** Live and retired packs, for the provider: WhatsApp must still reach both. */
+    fun packsForWhatsAppBlocking(): List<StickerPack> = packsBlocking() + retired
+
+    val retiredPacks: List<StickerPack> get() = retired
+
+    /** Forgets retired packs WhatsApp no longer has; their files go on the next cold start. */
+    suspend fun purgeRetired(stillInWhatsApp: suspend (StickerPack) -> Boolean) {
+        val gone = retired.filterNot { stillInWhatsApp(it) }.map { it.id }.toSet()
+        if (gone.isEmpty()) return
+        edit { packs ->
+            retired = retired.filterNot { it.id in gone }
+            packs to Unit
+        }
+    }
+
     suspend fun createPack(name: String, publisher: String): StickerPack = edit { packs ->
         val now = System.currentTimeMillis()
         val pack = StickerPack(
@@ -84,13 +102,19 @@ class PackRepository(context: Context) {
         it.copy(name = name.take(WhatsAppLimits.MAX_NAME_CHARS))
     }
 
-    /** Removes from the index only; pass the returned pack to [restorePack] to undo. */
+    /**
+     * Hides a pack from the app; pass the returned pack to [restorePack] to undo. It stays
+     * retired (still served to WhatsApp, files kept) until [purgeRetired] finds WhatsApp no
+     * longer has it.
+     */
     suspend fun removePack(packId: String): StickerPack? = edit { packs ->
         val removed = packs.firstOrNull { it.id == packId }
+        if (removed != null) retired = retired.filterNot { it.id == packId } + removed
         packs.filterNot { it.id == packId } to removed
     }
 
     suspend fun restorePack(pack: StickerPack) = edit { packs ->
+        retired = retired.filterNot { it.id == pack.id }
         (packs.filterNot { it.id == pack.id } + pack).sortedByDescending { it.updatedAt } to Unit
     }
 
@@ -213,25 +237,25 @@ class PackRepository(context: Context) {
     /** Caller holds [mutex]. */
     private fun load(): List<StickerPack> {
         _packs.value?.let { return it }
-        val packs = runCatching { json.decodeFromString<PackIndex>(indexFile.readText()).packs }
-            .getOrDefault(emptyList())
-        sweepOrphans(packs)
-        _packs.value = packs
-        return packs
+        val index = runCatching { json.decodeFromString<PackIndex>(indexFile.readText()) }.getOrDefault(PackIndex())
+        retired = index.retired
+        sweepOrphans(index.packs + index.retired)
+        _packs.value = index.packs
+        return index.packs
     }
 
     private fun save(packs: List<StickerPack>) {
         root.mkdirs()
         // Write-then-rename so a crash mid-write never leaves a truncated index.
         val tmp = File(root, "index.json.tmp")
-        tmp.writeText(json.encodeToString(PackIndex.serializer(), PackIndex(packs)))
+        tmp.writeText(json.encodeToString(PackIndex.serializer(), PackIndex(packs, retired)))
         if (!tmp.renameTo(indexFile)) {
             indexFile.delete()
             tmp.renameTo(indexFile)
         }
     }
 
-    /** Deletes folders/files of packs and stickers no longer in the index (old undo windows). */
+    /** Deletes folders/files of packs and stickers no longer in the index (live or retired). */
     private fun sweepOrphans(packs: List<StickerPack>) {
         val byId = packs.associateBy { it.id }
         root.listFiles()?.filter { it.isDirectory }?.forEach { dir ->

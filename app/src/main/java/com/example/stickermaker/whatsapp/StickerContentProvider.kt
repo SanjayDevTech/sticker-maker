@@ -10,7 +10,14 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.example.stickermaker.StickerMakerApp
 import com.example.stickermaker.data.PackRepository
+import com.example.stickermaker.data.Sticker
 import com.example.stickermaker.data.StickerPack
+import com.example.stickermaker.data.WhatsAppLimits
+import com.example.stickermaker.editor.StickerExport
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import java.io.File
 
 /**
  * What WhatsApp reads a pack from, following the contract in WhatsApp's official sample app
@@ -48,9 +55,9 @@ class StickerContentProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?,
     ): Cursor = when (matcher.match(uri)) {
-        METADATA_ALL -> metadata(uri, packs.packsBlocking())
-        METADATA_ONE -> metadata(uri, packs.packsBlocking().filter { it.id == uri.lastPathSegment })
-        STICKERS_OF_PACK -> stickers(uri, packs.packsBlocking().firstOrNull { it.id == uri.lastPathSegment })
+        METADATA_ALL -> metadata(uri, packs.packsForWhatsAppBlocking())
+        METADATA_ONE -> metadata(uri, listOf(findOrStub(uri.lastPathSegment)))
+        STICKERS_OF_PACK -> stickers(uri, findOrStub(uri.lastPathSegment))
         else -> throw IllegalArgumentException("Unknown URI: $uri")
     }
 
@@ -103,7 +110,9 @@ class StickerContentProvider : ContentProvider() {
         if (segments.size != 3) return null
         val packId = segments[1]
         val fileName = segments[2]
-        val pack = packs.packsBlocking().firstOrNull { it.id == packId } ?: return null
+        val known = packs.packsForWhatsAppBlocking().firstOrNull { it.id == packId }
+        if (known == null) return stubAsset(fileName)
+        val pack = known
         // Serve only files that belong to the pack: no path tricks into other folders.
         val file = when {
             fileName == TRAY_FILE -> packs.trayFile(packId)
@@ -113,6 +122,49 @@ class StickerContentProvider : ContentProvider() {
         if (!file.exists()) return null
         val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         return AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
+    }
+
+    /**
+     * A pack WhatsApp asks for that we no longer know (deleted before deleted packs were kept
+     * around): answer with a valid "Deleted pack" stand-in, so WhatsApp has something it can
+     * show and the user can remove it there.
+     */
+    private fun findOrStub(packId: String?): StickerPack {
+        packs.packsForWhatsAppBlocking().firstOrNull { it.id == packId }?.let { return it }
+        val now = System.currentTimeMillis()
+        return StickerPack(
+            id = packId.orEmpty(),
+            name = "Deleted pack",
+            publisher = "Sticker Maker",
+            stickers = List(WhatsAppLimits.MIN_STICKERS) { Sticker(id = "$STUB_PREFIX$it", updatedAt = now) },
+            createdAt = now,
+            updatedAt = now,
+        )
+    }
+
+    private fun stubAsset(fileName: String): AssetFileDescriptor? {
+        val ctx = requireNotNull(context)
+        val isTray = fileName == TRAY_FILE
+        if (!isTray && !fileName.startsWith(STUB_PREFIX)) return null
+        val file = File(ctx.cacheDir, "stub/${if (isTray) "tray.png" else "sticker.webp"}")
+        if (!file.exists()) {
+            file.parentFile?.mkdirs()
+            val side = if (isTray) WhatsAppLimits.TRAY_PX else WhatsAppLimits.STICKER_PX
+            val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).apply {
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                paint.color = 0xFFD4BBFF.toInt() // Palette.Lavender
+                drawCircle(side / 2f, side / 2f, side * 0.4f, paint)
+                paint.color = 0xFF141414.toInt()
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = side * 0.05f
+                drawCircle(side / 2f, side / 2f, side * 0.4f, paint)
+                drawLine(side * 0.36f, side * 0.36f, side * 0.64f, side * 0.64f, paint)
+                drawLine(side * 0.64f, side * 0.36f, side * 0.36f, side * 0.64f, paint)
+            }
+            file.writeBytes(if (isTray) StickerExport.encodeTray(bitmap) else StickerExport.encodeSticker(bitmap))
+        }
+        return AssetFileDescriptor(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY), 0, AssetFileDescriptor.UNKNOWN_LENGTH)
     }
 
     override fun getType(uri: Uri): String {
@@ -137,6 +189,7 @@ class StickerContentProvider : ContentProvider() {
         const val STICKERS = "stickers"
         const val STICKERS_ASSET = "stickers_asset"
         const val TRAY_FILE = "tray.png"
+        const val STUB_PREFIX = "deleted_"
 
         const val METADATA_ALL = 1
         const val METADATA_ONE = 2
