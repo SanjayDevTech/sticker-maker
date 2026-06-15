@@ -1,5 +1,7 @@
 package com.example.stickermaker.ui.screens.home
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.offset
 import com.example.stickermaker.whatsapp.WhatsApp
 import androidx.compose.ui.platform.LocalContext
 import com.example.stickermaker.ui.components.showUndo
@@ -130,16 +132,18 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(Dimens.Space24),
         ) {
             item(key = "headline", contentType = "headline") {
-                Box(Modifier.fillMaxWidth()) {
-                    Text("Make it\nstick.", style = MaterialTheme.typography.displayLarge)
-                    StickerTag(
-                        "no border!",
-                        Palette.Pink,
-                        rotation = 8f,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 18.dp, end = 12.dp),
-                    )
+                // The tag is slapped onto the end of the headline, like a sticker on a word.
+                Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+                    Text("Make it", style = MaterialTheme.typography.displayLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("stick.", style = MaterialTheme.typography.displayLarge)
+                        StickerTag(
+                            "no border!",
+                            Palette.Pink,
+                            rotation = 8f,
+                            modifier = Modifier.offset(x = (-6).dp, y = (-10).dp),
+                        )
+                    }
                 }
             }
             item(key = "hero", contentType = "card") {
