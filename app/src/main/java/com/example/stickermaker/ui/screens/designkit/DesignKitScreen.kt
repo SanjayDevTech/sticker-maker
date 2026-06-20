@@ -158,8 +158,14 @@ fun DesignKitScreen(onBack: () -> Unit) {
             item(key = "slider", contentType = "demo-block") {
                 var level by remember { mutableFloatStateOf(0.4f) }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
-                    BrutalSlider(value = level, onValueChange = { level = it }, modifier = Modifier.weight(1f))
-                    Text("${(level * 100).roundToInt()}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(40.dp))
+                    BrutalSlider(
+                        value = level,
+                        onValueChange = { level = it },
+                        valueLabel = "${(level * 100).roundToInt()}%",
+                        onDecrease = { level = (((level * 100).roundToInt() - 1) / 100f).coerceIn(0f, 1f) },
+                        onIncrease = { level = (((level * 100).roundToInt() + 1) / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
 

@@ -265,8 +265,13 @@ private fun ToolPanel(state: EditorUiState, vm: EditorViewModel, view: CanvasVie
             Text(
                 if (sized) "Size" else "Match",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.width(56.dp),
+                modifier = Modifier.width(48.dp),
             )
+            val valueText = when (state.tool) {
+                EditTool.Brush -> "${state.brushPx} px"
+                EditTool.Magic -> "${state.markerPx} px"
+                EditTool.Auto -> "${(state.tolerance * 100).roundToInt()}%"
+            }
             BrutalSlider(
                 value = when (state.tool) {
                     EditTool.Brush -> state.brush
@@ -274,6 +279,9 @@ private fun ToolPanel(state: EditorUiState, vm: EditorViewModel, view: CanvasVie
                     EditTool.Auto -> state.tolerance
                 },
                 onValueChange = if (sized) vm::setBrush else vm::setTolerance,
+                valueLabel = valueText,
+                onDecrease = { if (sized) vm.nudgeSize(-1) else vm.nudgeTolerance(-1) },
+                onIncrease = { if (sized) vm.nudgeSize(1) else vm.nudgeTolerance(1) },
                 color = when (state.tool) {
                     EditTool.Brush -> Palette.Pink
                     EditTool.Magic -> Palette.Sky
@@ -283,14 +291,10 @@ private fun ToolPanel(state: EditorUiState, vm: EditorViewModel, view: CanvasVie
                 modifier = Modifier.weight(1f),
             )
             Text(
-                when (state.tool) {
-                    EditTool.Brush -> "${state.brushPx} px"
-                    EditTool.Magic -> "${state.markerPx} px"
-                    EditTool.Auto -> "${(state.tolerance * 100).roundToInt()}%"
-                },
+                valueText,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.End,
-                modifier = Modifier.width(64.dp),
+                modifier = Modifier.width(52.dp),
             )
         }
     }

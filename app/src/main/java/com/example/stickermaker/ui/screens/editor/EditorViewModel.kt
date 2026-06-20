@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 enum class EditTool { Brush, Auto, Magic }
 
@@ -125,6 +126,20 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
     fun setErase(erase: Boolean) = _state.update { it.copy(erase = erase) }
     fun setBrush(value: Float) = _state.update {
         if (it.tool == EditTool.Magic) it.copy(marker = value) else it.copy(brush = value)
+    }
+
+    /** One pixel up or down for Size (Brush or Magic's marker), exact despite the curved scale. */
+    fun nudgeSize(delta: Int) {
+        val s = _state.value
+        val px = if (s.tool == EditTool.Magic) s.markerPx else s.brushPx
+        val target = (px + delta).coerceIn(1, EditorUiState.MAX_BRUSH_PX)
+        setBrush(sqrt((target - 1f) / (EditorUiState.MAX_BRUSH_PX - 1)))
+    }
+
+    /** One percent up or down for Match. */
+    fun nudgeTolerance(delta: Int) {
+        val percent = ((_state.value.tolerance * 100).roundToInt() + delta).coerceIn(0, 100)
+        setTolerance(percent / 100f)
     }
 
     fun setTolerance(value: Float) {
