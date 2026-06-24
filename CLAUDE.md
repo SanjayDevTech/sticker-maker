@@ -32,6 +32,9 @@ coordinates.
 
 - No clean-architecture layers, no use cases, no domain module, no interfaces with one impl.
 - `data/`: stores and repositories, exposing `Flow`s and suspend functions.
+- `editor/`: pure pixel/geometry work with no Android types where possible (`MaskOps`,
+  `Segmenter`, `GridMaxFlow`, `Outline`), unit-tested on the JVM. `whatsapp/` and
+  `keyboard/` hold the WhatsApp integration.
 - `ui/screens/<feature>/`: `XScreen.kt` plus an `XViewModel.kt` when the screen has real state.
   A ViewModel exposes one `StateFlow<XUiState>` (`stateIn(WhileSubscribed(5_000))`), and
   screens collect it with `collectAsStateWithLifecycle`. Screens with no persistent state skip the VM.
@@ -54,7 +57,7 @@ go bold: big buttons, squiggly edges and stickers slapped on things are all welc
 - Build from `BrutalSurface` (outline + hard shadow + press-sinks-into-shadow). Higher-level
   pieces live in `ui/components`: `ChunkyButton`, `IconTile`, `StickerCard`, `StickerTag`,
   `SegmentedPicker`, `StickerTopBar`, `StickerBottomSheet`, `EmptyState`, `SkeletonBlock`,
-  `ToastHost` and `SquigglyShape`/`WobblingShape`.
+  `ToastHost`, `BrutalSlider`, `BrutalTextField`, `PackTray` and `SquigglyShape`/`WobblingShape`.
 - Hard shadows paint outside bounds. Give containers end/bottom padding of at least the
   shadow size (lists use `end = ScreenGutter + ShadowL`).
 - Never fade a brutal component with a plain `graphicsLayer { alpha = … }`. Alpha < 1 renders
@@ -103,6 +106,38 @@ These follow Google's Compose performance guidance, audited 2026-11-07.
   alpha layer only when it's needed.
 - Re-run the compose reports after adding models: every restartable composable should stay
   skippable.
+
+## WhatsApp: verified facts (Pixel 9, Nov 2026)
+
+These were checked on a real device. Don't re-litigate them without new evidence.
+
+- **Packs (3–30):** `whatsapp/StickerContentProvider` serves them, matching WhatsApp's
+  official sample (paths, columns, `com.whatsapp.sticker.READ`), and `ENABLE_STICKER_PACK`
+  adds them.
+  - WhatsApp writes pack name, publisher and app link into stickers sent from a pack.
+- **Deleted packs** are *retired*, not dropped (`PackIndex.retired`). The provider keeps
+  serving them until WhatsApp's whitelist check says WhatsApp no longer has them.
+  - Unknown pack IDs get a "Deleted pack" stand-in, so WhatsApp can still remove packs
+    deleted before retiring existed.
+- **WhatsApp only refreshes its pack list after it restarts**, for adds and removes alike.
+  An app can't force that.
+- **Single stickers without a pack:** WhatsApp's message box accepts `image/webp.wasticker`
+  (read via `adb shell dumpsys input_method`).
+  - A clipboard clip with that MIME type, pasted into a chat, arrives as a real sticker.
+  - The sticker keyboard (`keyboard/StickerKeyboardService`, commit-content API) uses the
+    same type.
+- **Dead ends, don't retry:**
+  - Sharing a WebP with `ACTION_SEND` arrives as a **photo**.
+  - Sticker EXIF metadata (pack, publisher, emojis) is **blanked**: WhatsApp re-encodes
+    pasted and inserted stickers.
+- **Compose in the keyboard:** pass `StickerTheme(fillScreen = false)`. The default root
+  Surface is `fillMaxSize`, which made the IME window full screen.
+  - Keep the panel a fixed height. Resizing the IME window per frame is sluggish, because
+    the app behind relays out too.
+- **Package visibility:** the manifest's `<queries>` lists `com.whatsapp` and
+  `com.whatsapp.w4b`.
+- **Before any release:** `applicationId` is still `com.example.*`, which the Play Store
+  rejects. Changing it later means a fresh install with no data.
 
 ## Release and performance
 

@@ -41,7 +41,7 @@ class PackViewModel(private val packId: String, private val packs: PackRepositor
     }
 
     /** Deletes the pack and hands it to Home, which offers Undo. */
-    suspend fun deletePack() {
-        packs.removePack(packId)?.let { packs.recentlyRemoved.value = it }
+    suspend fun deletePack(inWhatsApp: Boolean) {
+        packs.removePack(packId)?.let { packs.recentlyRemoved.value = PackRepository.RemovedPack(it, inWhatsApp) }
     }
 }

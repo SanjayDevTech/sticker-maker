@@ -202,7 +202,10 @@ class PackRepository(context: Context) {
      * A pack just deleted from its own screen, for Home to offer Undo once it's back on screen.
      * Home clears it after showing the toast.
      */
-    val recentlyRemoved = MutableStateFlow<StickerPack?>(null)
+    val recentlyRemoved = MutableStateFlow<RemovedPack?>(null)
+
+    /** [inWhatsApp]: WhatsApp still has it, which Home's toast mentions. */
+    data class RemovedPack(val pack: StickerPack, val inWhatsApp: Boolean)
 
     fun newId(): String = UUID.randomUUID().toString().replace("-", "").take(16)
 

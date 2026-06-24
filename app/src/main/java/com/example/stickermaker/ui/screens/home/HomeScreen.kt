@@ -93,9 +93,15 @@ fun HomeScreen(
     // A pack deleted on its own screen comes back here with an Undo.
     val removed by container.packs.recentlyRemoved.collectAsStateWithLifecycle()
     LaunchedEffect(removed) {
-        val pack = removed ?: return@LaunchedEffect
+        val (pack, inWhatsApp) = removed ?: return@LaunchedEffect
         container.packs.recentlyRemoved.value = null
-        launch { if (toasts.showUndo("“${pack.name}” deleted")) container.packs.restorePack(pack) }
+        // WhatsApp keeps its own copy and only refreshes its list after a restart; say so.
+        val message = if (inWhatsApp) {
+            "“${pack.name}” deleted here. Remove it in WhatsApp too; it updates after a restart."
+        } else {
+            "“${pack.name}” deleted"
+        }
+        launch { if (toasts.showUndo(message)) container.packs.restorePack(pack) }
     }
     // System photo picker: no storage permission, multi-select up to a full pack.
     val pickPhotos = rememberLauncherForActivityResult(

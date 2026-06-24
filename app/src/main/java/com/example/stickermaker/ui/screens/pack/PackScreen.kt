@@ -157,7 +157,7 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
                 actions = {
                     // Leaving happens on its own once the pack is gone (see above); Home offers Undo.
-                    IconTile(R.drawable.ic_delete, "Delete pack", { scope.launch { vm.deletePack() } }, color = Palette.Coral)
+                    IconTile(R.drawable.ic_delete, "Delete pack", { scope.launch { vm.deletePack(inWhatsApp = whatsApp == WhatsApp.Status.Added) } }, color = Palette.Coral)
                 },
             )
         },
