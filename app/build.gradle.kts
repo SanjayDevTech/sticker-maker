@@ -17,6 +17,12 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1"
+        // 64-bit ARM only: every current phone (Play has required 64-bit since 2019), and the
+        // Apple-silicon emulators used for baseline profiles. Drops the 32-bit ARM and x86
+        // copies of every native library.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {

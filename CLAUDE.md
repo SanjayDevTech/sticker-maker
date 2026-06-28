@@ -1,7 +1,8 @@
 # Sticker Maker — working notes
 
 Single-module Android app. Kotlin, Jetpack Compose, Material 3 (1.5 Expressive), Navigation 3,
-DataStore. minSdk 31, English only.
+DataStore. minSdk 31, English only, 64-bit ARM only (`abiFilters += "arm64-v8a"`; the emulators
+are arm64 too).
 
 ## Build
 
