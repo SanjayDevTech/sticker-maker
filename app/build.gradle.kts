@@ -23,6 +23,20 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+        externalNativeBuild {
+            cmake {
+                // 16 KB page alignment, required on newer Android for native libraries.
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+        }
+    }
+    // libwebp, built from a pinned, hash-checked release (src/main/cpp/CMakeLists.txt).
+    ndkVersion = "27.1.12297006"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

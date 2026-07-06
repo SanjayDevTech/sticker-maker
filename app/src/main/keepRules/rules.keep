@@ -12,3 +12,8 @@
     public static int d(...);
     public static int i(...);
 }
+
+# JNI: the C side looks methods up by class and method name (editor/WebpNative ↔ cpp/webp_jni.c).
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}

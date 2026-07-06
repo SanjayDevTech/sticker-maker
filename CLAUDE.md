@@ -28,6 +28,12 @@ coordinates.
   artifact with a comment saying why and when to drop it (see `material3` in the catalog).
 - Everything goes through `gradle/libs.versions.toml`.
 - No Hilt, no Room/Retrofit/etc. until a feature actually needs them.
+- One native dependency: **libwebp** (v1.6.0), built by CMake from a pinned, SHA-256-checked
+  release tarball (`app/src/main/cpp/`). The first build downloads it, so it needs network.
+  To bump it, change the URL and hash together. It's used for lossless stickers at effort 6:
+  about half the size of Android's encoder with identical pixels, verified on the phone. Level 9
+  is about 20× slower for 2% smaller files. `WebpNative` falls back to Android's encoder if the
+  library is missing.
 
 ## Architecture: keep it simple
 
