@@ -22,13 +22,46 @@ internal object WebpNative {
     /** Lossless WebP of [bitmap], or null. Call off the main thread. */
     fun lossless(bitmap: Bitmap): ByteArray? {
         if (!loaded) return null
-        val w = bitmap.width
-        val h = bitmap.height
-        val argb = IntArray(w * h)
-        bitmap.getPixels(argb, 0, w, 0, 0, w, h) // unpremultiplied ARGB
-        return runCatching { encodeLossless(argb, w, h, EFFORT) }
+        val argb = pixels(bitmap)
+        return runCatching { encodeLossless(argb, bitmap.width, bitmap.height, EFFORT) }
             .onFailure { Log.w("WebpNative", "libwebp encode failed", it) }
             .getOrNull()
+    }
+
+    /**
+     * The highest-quality lossy WebP of [bitmap] that fits in [maxBytes], or null. libwebp with
+     * sharp YUV and exact alpha keeps measurably more detail than Android's encoder: on a busy
+     * photo sticker 49.3 dB PSNR / 0.998 SSIM vs 45.3 / 0.997, in ~70 ms on a Pixel 9 (battery
+     * saver on). Tries quality 100 first (usually fits), then binary-searches whole steps.
+     */
+    fun lossyWithin(bitmap: Bitmap, maxBytes: Int): ByteArray? {
+        if (!loaded) return null
+        val argb = pixels(bitmap)
+        fun encode(q: Int) = runCatching { encodeLossy(argb, bitmap.width, bitmap.height, q.toFloat()) }
+            .onFailure { Log.w("WebpNative", "libwebp lossy encode failed", it) }
+            .getOrNull()
+        val best = encode(100) ?: return null
+        if (best.size <= maxBytes) return best
+        var lo = 0
+        var hi = 99
+        var fit: ByteArray? = null
+        while (lo <= hi) {
+            val q = (lo + hi) / 2
+            val bytes = encode(q) ?: return null
+            if (bytes.size <= maxBytes) {
+                fit = bytes
+                lo = q + 1
+            } else {
+                hi = q - 1
+            }
+        }
+        return fit
+    }
+
+    private fun pixels(bitmap: Bitmap): IntArray {
+        val w = bitmap.width
+        val h = bitmap.height
+        return IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) } // unpremultiplied ARGB
     }
 
     /** 0 fast .. 9 smallest; see the class doc for why 6. */
@@ -36,4 +69,7 @@ internal object WebpNative {
 
     @JvmStatic
     private external fun encodeLossless(argb: IntArray, width: Int, height: Int, level: Int): ByteArray?
+
+    @JvmStatic
+    private external fun encodeLossy(argb: IntArray, width: Int, height: Int, quality: Float): ByteArray?
 }

@@ -42,18 +42,21 @@ object StickerExport {
     }
 
     /**
-     * WebP bytes under WhatsApp's 100 KB: lossless when it fits (most cut-outs do), otherwise
-     * lossy at the highest quality that fits. Lossless goes through libwebp at maximum effort
-     * ([WebpNative]), about half the size of Android's own lossless encoder for identical
-     * pixels, so far fewer stickers ever need the lossy fallback.
+     * WebP bytes under WhatsApp's 100 KB, best quality first:
+     * 1. Lossless (pixel-exact) via libwebp, about half the size of Android's lossless. Cut-outs
+     *    almost always fit.
+     * 2. Otherwise lossy via libwebp's slow, careful settings at the highest quality that fits.
+     * 3. If libwebp isn't available, Android's encoders, same order.
      */
     fun encodeSticker(sticker: Bitmap): ByteArray {
+        val limit = WhatsAppLimits.STICKER_MAX_BYTES
         val lossless = WebpNative.lossless(sticker) ?: compress(sticker, Bitmap.CompressFormat.WEBP_LOSSLESS, 100)
-        if (lossless.size <= WhatsAppLimits.STICKER_MAX_BYTES) return lossless
+        if (lossless.size <= limit) return lossless
+        WebpNative.lossyWithin(sticker, limit)?.let { return it }
         var quality = 95
         while (true) {
             val bytes = compress(sticker, Bitmap.CompressFormat.WEBP_LOSSY, quality)
-            if (bytes.size <= WhatsAppLimits.STICKER_MAX_BYTES || quality <= MIN_QUALITY) return bytes
+            if (bytes.size <= limit || quality <= MIN_QUALITY) return bytes
             quality -= 5
         }
     }

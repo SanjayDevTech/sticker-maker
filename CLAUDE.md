@@ -32,8 +32,12 @@ coordinates.
   release tarball (`app/src/main/cpp/`). The first build downloads it, so it needs network.
   To bump it, change the URL and hash together. It's used for lossless stickers at effort 6:
   about half the size of Android's encoder with identical pixels, verified on the phone. Level 9
-  is about 20× slower for 2% smaller files. `WebpNative` falls back to Android's encoder if the
-  library is missing.
+  is about 20× slower for 2% smaller files.
+  - Stickers too detailed for lossless under 100 KB take libwebp's lossy path: sharp YUV,
+    method 5, exact alpha, at the highest quality that fits. That's +4 dB PSNR over Android's
+    lossy encoder. Method 6 and "best" alpha filtering cost seconds for about no gain; don't
+    re-add them.
+  - `WebpNative` falls back to Android's encoders if the library is missing.
 
 ## Architecture: keep it simple
 
