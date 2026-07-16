@@ -5,6 +5,15 @@ project(stickerwebp C)
 
 include(FetchContent)
 
+# Size: applied to libwebp's own sources too (they build as separate object libraries, so
+# per-target options wouldn't reach them). Hidden visibility + link-time optimisation let the
+# linker drop everything our two JNI functions don't reach, including the whole decoder.
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections -fvisibility=hidden -flto=thin")
+# The NDK appends -O2/-O3 per build type after CMAKE_C_FLAGS, so the size level goes here.
+foreach(type RELEASE RELWITHDEBINFO MINSIZEREL)
+    set(CMAKE_C_FLAGS_${type} "-Oz -DNDEBUG")
+endforeach()
+
 # Only the library: none of libwebp's command-line tools, mux or extras.
 foreach(opt ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO LIBWEBPMUX WEBPMUX EXTRAS)
     set(WEBP_BUILD_${opt} OFF CACHE BOOL "" FORCE)
@@ -22,7 +31,5 @@ FetchContent_MakeAvailable(libwebp)
 add_library(stickerwebp SHARED webp_jni.c)
 target_link_libraries(stickerwebp PRIVATE webp)
 
-# Small: size-optimised, and unused code dropped at link time.
-target_compile_options(stickerwebp PRIVATE -Os -ffunction-sections -fdata-sections)
-target_compile_options(webp PRIVATE -Os -ffunction-sections -fdata-sections)
-target_link_options(stickerwebp PRIVATE -Wl,--gc-sections)
+# Only the JNI entry points are exported; unused code and identical functions are folded away.
+target_link_options(stickerwebp PRIVATE -flto=thin -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,--icf=all)
