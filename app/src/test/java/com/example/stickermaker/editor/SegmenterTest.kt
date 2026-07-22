@@ -117,4 +117,50 @@ class SegmenterTest {
         val pixels = IntArray(16) { argb(1, 2, 3) }
         assertNull(Segmenter.segment(pixels, 4, 4, ByteArray(16) { MaskOps.KEPT }, ByteArray(16)))
     }
+
+    @Test
+    fun aReusedGraphGivesTheSameFlowAsAFreshOne() {
+        val random = Random(9)
+        val w = 4
+        val h = 4
+        val n = w * h
+        val reused = GridMaxFlow(w, h)
+        repeat(20) {
+            val edges = FloatArray(n * 8)
+            val src = FloatArray(n) { random.nextInt(0, 12).toFloat() }
+            val sink = FloatArray(n) { random.nextInt(0, 12).toFloat() }
+            val fresh = GridMaxFlow(w, h)
+            for (p in 0 until n) for (d in 0 until 8) {
+                if (fresh.neighbor(p, d) >= 0) edges[p * 8 + d] = random.nextInt(0, 10).toFloat()
+            }
+            for (p in 0 until n) for (d in 0 until 8) fresh.setEdge(p, d, edges[p * 8 + d])
+            reused.reset(edges)
+            for (p in 0 until n) {
+                fresh.setTerminals(p, src[p], sink[p])
+                reused.setTerminals(p, src[p], sink[p])
+            }
+            assertEquals(fresh.maxFlow(), reused.maxFlow(), 1e-3)
+        }
+    }
+
+    @Test
+    fun aWarmStartAgreesWithTheColdRun() {
+        val w = 120
+        val h = 90
+        val pixels = disk(w, h, 60, 45, 25, Random(4))
+        val base = ByteArray(w * h) { MaskOps.KEPT }
+        val seeds = ByteArray(w * h)
+        MaskOps.stampLine(seeds, w, h, 52f, 45f, 68f, 45f, 3f, Segmenter.SEED_KEEP)
+
+        val prepared = Segmenter.prepare(pixels, w, h)
+        val cold = requireNotNull(Segmenter.segment(prepared, base, seeds))
+        val warm = requireNotNull(Segmenter.segment(prepared, base, seeds))
+        assertTrue(cold.contentEquals(warm))
+
+        // A Remove mark on the subject after a warm start still carves it out.
+        MaskOps.stamp(seeds, w, h, 60f, 30f, 4f, Segmenter.SEED_REMOVE)
+        val carved = requireNotNull(Segmenter.segment(prepared, base, seeds))
+        assertEquals(MaskOps.ERASED, carved[30 * w + 60])
+        assertEquals(MaskOps.KEPT, carved[45 * w + 60])
+    }
 }

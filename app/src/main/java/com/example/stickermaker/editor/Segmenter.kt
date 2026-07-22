@@ -27,6 +27,59 @@ object Segmenter {
     private const val ITERATIONS = 4
 
     /**
+     * One image, prepared for Magic: the downscaled colours, the edge weights (they depend only
+     * on the pixels) and a reusable graph. Also remembers the last result and colour models, so
+     * the next scribble starts from there (a warm start usually settles in one round instead
+     * of two to four). Keep one per image for a whole Magic session. Not thread-safe: run one
+     * [segment] at a time.
+     */
+    class Prepared internal constructor(
+        internal val fullW: Int,
+        internal val fullH: Int,
+        internal val w: Int,
+        internal val h: Int,
+        internal val rgb: FloatArray,
+        internal val edges: FloatArray,
+        /** A terminal weight no cut through edges can beat: makes marks certain. */
+        internal val certain: Float,
+    ) {
+        internal val n = w * h
+        internal val graph = GridMaxFlow(w, h)
+        internal var labels: BooleanArray? = null
+        internal var fgModel: Gmm? = null
+        internal var bgModel: Gmm? = null
+    }
+
+    /** Downscales [pixels] ([w]×[h] ARGB) and computes its edge weights. */
+    fun prepare(pixels: IntArray, w: Int, h: Int): Prepared {
+        val scale = max(1f, max(w, h).toFloat() / WORK_PX)
+        val ww = max(1, (w / scale).roundToInt())
+        val wh = max(1, (h / scale).roundToInt())
+        val rgb = FloatArray(ww * wh * 3)
+        forEachBlock(w, h, ww, wh) { p, x0, x1, y0, y1 ->
+            var r = 0; var g = 0; var b = 0; var count = 0
+            for (sy in y0 until y1) {
+                for (sx in x0 until x1) {
+                    val c = pixels[sy * w + sx]
+                    r += (c shr 16) and 0xFF; g += (c shr 8) and 0xFF; b += c and 0xFF
+                    count++
+                }
+            }
+            rgb[p * 3] = r.toFloat() / count
+            rgb[p * 3 + 1] = g.toFloat() / count
+            rgb[p * 3 + 2] = b.toFloat() / count
+        }
+        val edges = smoothness(rgb, ww, wh)
+        var maxLink = 0f
+        for (p in 0 until ww * wh) {
+            var sum = 0f
+            for (d in 0 until 8) sum += edges[p * 8 + d]
+            maxLink = max(maxLink, sum)
+        }
+        return Prepared(w, h, ww, wh, rgb, edges, maxLink + 1f)
+    }
+
+    /**
      * @param pixels ARGB source, [w]×[h].
      * @param base the mask before Magic: erased pixels (0) are certain background.
      * @param seeds per pixel [SEED_KEEP]/[SEED_REMOVE]/[SEED_NONE]; keep marks are certain subject.
@@ -36,11 +89,40 @@ object Segmenter {
         pixels: IntArray, w: Int, h: Int,
         base: ByteArray, seeds: ByteArray,
         isActive: () -> Boolean = { true },
+    ): ByteArray? = segment(prepare(pixels, w, h), base, seeds, isActive)
+
+    /** As above, reusing [prepared] (and warm-starting from its last result). */
+    fun segment(
+        prepared: Prepared,
+        base: ByteArray, seeds: ByteArray,
+        isActive: () -> Boolean = { true },
     ): ByteArray? {
         if (seeds.none { it == SEED_KEEP }) return null
-        val work = Work.from(pixels, w, h, base, seeds)
-        val labels = work.run(isActive)
-        return upscale(labels, work.w, work.h, w, h, base, seeds)
+        val hard = ByteArray(prepared.n)
+        val erasedOnly = BooleanArray(prepared.n)
+        val fw = prepared.fullW
+        forEachBlock(fw, prepared.fullH, prepared.w, prepared.h) { p, x0, x1, y0, y1 ->
+            var keep = false; var remove = false; var erased = 0; var count = 0
+            for (sy in y0 until y1) {
+                for (sx in x0 until x1) {
+                    val i = sy * fw + sx
+                    when (seeds[i]) {
+                        SEED_KEEP -> keep = true
+                        SEED_REMOVE -> remove = true
+                    }
+                    if (base[i] == MaskOps.ERASED) erased++
+                    count++
+                }
+            }
+            hard[p] = when {
+                keep -> HARD_FG
+                remove || erased * 2 > count -> HARD_BG
+                else -> UNKNOWN
+            }
+            erasedOnly[p] = !keep && !remove && erased * 2 > count
+        }
+        val labels = run(prepared, hard, erasedOnly, isActive)
+        return upscale(labels, prepared.w, prepared.h, prepared.fullW, prepared.fullH, base, seeds)
     }
 
     /** Hard labels per work pixel. */
@@ -48,167 +130,132 @@ object Segmenter {
     private const val HARD_FG: Byte = 1
     private const val HARD_BG: Byte = 2
 
-    private class Work(
-        val w: Int,
-        val h: Int,
-        val rgb: FloatArray,
-        val hard: ByteArray,
-        /** Pixels erased before Magic: certain background, but they don't teach the colour models. */
-        val erased: BooleanArray,
-    ) {
-        val n = w * h
+    private fun run(prep: Prepared, hard: ByteArray, erased: BooleanArray, isActive: () -> Boolean): BooleanArray {
+        val w = prep.w
+        val h = prep.h
+        val n = prep.n
+        val rgb = prep.rgb
+        val band = max(2, min(w, h) / 50)
+        fun inBand(p: Int): Boolean {
+            val x = p % w
+            val y = p / w
+            return x < band || y < band || x >= w - band || y >= h - band
+        }
+        val previous = prep.labels
+        val warm = previous != null && prep.fgModel != null && prep.bgModel != null
+        // Cold: like GrabCut with a rectangle, everything is maybe-subject except a thin border
+        // band (a photo's edge is almost always background). Warm: the last result. Marks win.
+        val fg = BooleanArray(n) { p ->
+            when (hard[p]) {
+                HARD_FG -> true
+                HARD_BG -> false
+                else -> if (warm) previous!![p] else !inBand(p)
+            }
+        }
+        if (fg.none { !it }) {
+            // Nothing to learn the background from: keep everything.
+            return BooleanArray(n) { hard[it] != HARD_BG }
+        }
+        // Earlier erasing may have taken part of the subject too, so those colours must not
+        // define "background". The border band still counts, erased or not.
+        val train = BooleanArray(n) { p -> !erased[p] || inBand(p) }
 
-        fun run(isActive: () -> Boolean): BooleanArray {
-            // Start like GrabCut with a rectangle: everything is maybe-subject except a thin
-            // border band (a photo's edge is almost always background) and what's known.
-            val band = max(2, min(w, h) / 50)
-            val fg = BooleanArray(n) { p ->
-                val x = p % w
-                val y = p / w
-                when (hard[p]) {
-                    HARD_FG -> true
-                    HARD_BG -> false
-                    else -> x >= band && y >= band && x < w - band && y < h - band
-                }
-            }
-            if (fg.none { !it }) {
-                // Nothing to learn the background from: keep everything.
-                return BooleanArray(n) { hard[it] != HARD_BG }
-            }
-            // Earlier erasing may have taken part of the subject too, so those colours must not
-            // define "background". The border band still counts, erased or not.
-            val train = BooleanArray(n) { p ->
-                val x = p % w
-                val y = p / w
-                !erased[p] || x < band || y < band || x >= w - band || y >= h - band
-            }
-            val edges = smoothness()
-            val fgModel = Gmm()
-            val bgModel = Gmm()
+        val fgModel: Gmm
+        val bgModel: Gmm
+        if (warm) {
+            fgModel = prep.fgModel!!
+            bgModel = prep.bgModel!!
+            fgModel.learn(rgb, fg, true, train)
+            bgModel.learn(rgb, fg, false, train)
+        } else {
+            fgModel = Gmm()
+            bgModel = Gmm()
             fgModel.init(rgb, fg, true, train)
             bgModel.init(rgb, fg, false, train)
-            repeat(ITERATIONS) { iteration ->
-                if (!isActive()) throw GridMaxFlow.MaxFlowCancelled()
-                if (iteration > 0) {
-                    fgModel.learn(rgb, fg, true, train)
-                    bgModel.learn(rgb, fg, false, train)
-                }
-                val graph = GridMaxFlow(w, h)
-                var maxLink = 0f
-                for (p in 0 until n) {
-                    var sum = 0f
-                    for (d in 0 until 8) {
-                        val c = edges[p * 8 + d]
-                        graph.setEdge(p, d, c)
-                        sum += c
-                    }
-                    maxLink = max(maxLink, sum)
-                }
-                val certain = maxLink + 1f
-                for (p in 0 until n) {
-                    when (hard[p]) {
-                        HARD_FG -> graph.setTerminals(p, certain, 0f)
-                        HARD_BG -> graph.setTerminals(p, 0f, certain)
-                        else -> {
-                            val r = rgb[p * 3]; val g = rgb[p * 3 + 1]; val b = rgb[p * 3 + 2]
-                            // Cutting p from the source labels it background: costs -ln P(bg).
-                            graph.setTerminals(p, bgModel.cost(r, g, b), fgModel.cost(r, g, b))
-                        }
+        }
+        val graph = prep.graph
+        for (iteration in 0 until ITERATIONS) {
+            if (!isActive()) throw GridMaxFlow.MaxFlowCancelled()
+            if (iteration > 0) {
+                fgModel.learn(rgb, fg, true, train)
+                bgModel.learn(rgb, fg, false, train)
+            }
+            graph.reset(prep.edges)
+            for (p in 0 until n) {
+                when (hard[p]) {
+                    HARD_FG -> graph.setTerminals(p, prep.certain, 0f)
+                    HARD_BG -> graph.setTerminals(p, 0f, prep.certain)
+                    else -> {
+                        val r = rgb[p * 3]; val g = rgb[p * 3 + 1]; val b = rgb[p * 3 + 2]
+                        // Cutting p from the source labels it background: costs -ln P(bg).
+                        graph.setTerminals(p, bgModel.cost(r, g, b), fgModel.cost(r, g, b))
                     }
                 }
-                graph.maxFlow(isActive)
-                var changed = 0
-                for (p in 0 until n) {
-                    val now = graph.isSource(p)
-                    if (now != fg[p]) changed++
-                    fg[p] = now
-                }
-                if (iteration > 0 && changed < n / 1000) return fg
             }
-            return fg
-        }
-
-        /** Edge weights: high between similar colours (expensive to cut), low across edges. */
-        private fun smoothness(): FloatArray {
-            var sum = 0.0
-            var count = 0
+            graph.maxFlow(isActive)
+            var changed = 0
             for (p in 0 until n) {
-                val x = p % w
-                val y = p / w
-                if (x + 1 < w) { sum += diff2(p, p + 1); count++ }
-                if (y + 1 < h) { sum += diff2(p, p + w); count++ }
+                val now = graph.isSource(p)
+                if (now != fg[p]) changed++
+                fg[p] = now
             }
-            val beta = if (sum > 0) (count / (2 * sum)).toFloat() else 0f
-            val out = FloatArray(n * 8)
-            val diag = (1 / sqrt(2.0)).toFloat()
-            for (p in 0 until n) {
-                for (d in 0 until 8) {
-                    val q = neighbor(p, d)
-                    if (q < 0) continue
-                    val dist = if (d >= 4) diag else 1f
-                    out[p * 8 + d] = GAMMA * dist * exp(-beta * diff2(p, q))
-                }
+            // A warm start is already near the answer, so it may stop after the first round.
+            if ((warm || iteration > 0) && changed < n / 1000) break
+        }
+        prep.labels = fg.copyOf()
+        prep.fgModel = fgModel
+        prep.bgModel = bgModel
+        return fg
+    }
+
+    /** Calls [block] for each work pixel with the full-size source rectangle it covers. */
+    private inline fun forEachBlock(
+        w: Int, h: Int, ww: Int, wh: Int,
+        block: (p: Int, x0: Int, x1: Int, y0: Int, y1: Int) -> Unit,
+    ) {
+        for (y in 0 until wh) {
+            val y0 = y * h / wh
+            val y1 = max(y0 + 1, (y + 1) * h / wh)
+            for (x in 0 until ww) {
+                val x0 = x * w / ww
+                val x1 = max(x0 + 1, (x + 1) * w / ww)
+                block(y * ww + x, x0, x1, y0, y1)
             }
-            return out
         }
+    }
 
-        private fun neighbor(p: Int, d: Int): Int {
-            val x = p % w + GridMaxFlow.DX[d]
-            val y = p / w + GridMaxFlow.DY[d]
-            return if (x < 0 || y < 0 || x >= w || y >= h) -1 else y * w + x
-        }
-
-        private fun diff2(p: Int, q: Int): Float {
+    /** Edge weights: high between similar colours (expensive to cut), low across edges. */
+    private fun smoothness(rgb: FloatArray, w: Int, h: Int): FloatArray {
+        val n = w * h
+        fun diff2(p: Int, q: Int): Float {
             val dr = rgb[p * 3] - rgb[q * 3]
             val dg = rgb[p * 3 + 1] - rgb[q * 3 + 1]
             val db = rgb[p * 3 + 2] - rgb[q * 3 + 2]
             return dr * dr + dg * dg + db * db
         }
-
-        companion object {
-            fun from(pixels: IntArray, w: Int, h: Int, base: ByteArray, seeds: ByteArray): Work {
-                val scale = max(1f, max(w, h).toFloat() / WORK_PX)
-                val ww = max(1, (w / scale).roundToInt())
-                val wh = max(1, (h / scale).roundToInt())
-                val rgb = FloatArray(ww * wh * 3)
-                val hard = ByteArray(ww * wh)
-                val erasedOnly = BooleanArray(ww * wh)
-                for (y in 0 until wh) {
-                    val y0 = y * h / wh
-                    val y1 = max(y0 + 1, (y + 1) * h / wh)
-                    for (x in 0 until ww) {
-                        val x0 = x * w / ww
-                        val x1 = max(x0 + 1, (x + 1) * w / ww)
-                        var r = 0; var g = 0; var b = 0; var count = 0
-                        var keep = false; var remove = false; var erased = 0
-                        for (sy in y0 until y1) {
-                            for (sx in x0 until x1) {
-                                val i = sy * w + sx
-                                val c = pixels[i]
-                                r += (c shr 16) and 0xFF; g += (c shr 8) and 0xFF; b += c and 0xFF
-                                count++
-                                when (seeds[i]) {
-                                    SEED_KEEP -> keep = true
-                                    SEED_REMOVE -> remove = true
-                                }
-                                if (base[i] == MaskOps.ERASED) erased++
-                            }
-                        }
-                        val p = y * ww + x
-                        rgb[p * 3] = r.toFloat() / count
-                        rgb[p * 3 + 1] = g.toFloat() / count
-                        rgb[p * 3 + 2] = b.toFloat() / count
-                        hard[p] = when {
-                            keep -> HARD_FG
-                            remove || erased * 2 > count -> HARD_BG
-                            else -> UNKNOWN
-                        }
-                        erasedOnly[p] = !keep && !remove && erased * 2 > count
-                    }
-                }
-                return Work(ww, wh, rgb, hard, erasedOnly)
+        var sum = 0.0
+        var count = 0
+        for (p in 0 until n) {
+            val x = p % w
+            val y = p / w
+            if (x + 1 < w) { sum += diff2(p, p + 1); count++ }
+            if (y + 1 < h) { sum += diff2(p, p + w); count++ }
+        }
+        val beta = if (sum > 0) (count / (2 * sum)).toFloat() else 0f
+        val out = FloatArray(n * 8)
+        val diag = (1 / sqrt(2.0)).toFloat()
+        for (p in 0 until n) {
+            val px = p % w
+            val py = p / w
+            for (d in 0 until 8) {
+                val x = px + GridMaxFlow.DX[d]
+                val y = py + GridMaxFlow.DY[d]
+                if (x < 0 || y < 0 || x >= w || y >= h) continue
+                val dist = if (d >= 4) diag else 1f
+                out[p * 8 + d] = GAMMA * dist * exp(-beta * diff2(p, y * w + x))
             }
         }
+        return out
     }
 
     /** Bilinear upscale of the labels, then the full-size truths: marks and earlier erasing. */
@@ -245,7 +292,7 @@ object Segmenter {
     }
 
     /** Gaussian mixture over RGB with full covariances, as in GrabCut. */
-    private class Gmm(val k: Int = 5) {
+    internal class Gmm(val k: Int = 5) {
         private val weight = FloatArray(k)
         private val mean = FloatArray(k * 3)
         private val inv = FloatArray(k * 9)
@@ -253,9 +300,9 @@ object Segmenter {
 
         /** First fit: k-means on (a sample of) the pixels whose label is [fg]. */
         fun init(rgb: FloatArray, labels: BooleanArray, fg: Boolean, train: BooleanArray) {
-            val members = labels.indices.filter { labels[it] == fg && train[it] }
+            val members = members(labels, fg, train)
             if (members.isEmpty()) return
-            val sample = if (members.size > 20_000) members.shuffled(Random(7)).take(20_000) else members
+            val sample = if (members.size > 20_000) members.toList().shuffled(Random(7)).take(20_000) else members.toList()
             val centers = FloatArray(k * 3)
             val random = Random(11)
             for (c in 0 until k) {
@@ -290,7 +337,7 @@ object Segmenter {
 
         /** Later fits: each pixel joins its most likely component, then parameters are re-estimated. */
         fun learn(rgb: FloatArray, labels: BooleanArray, fg: Boolean, train: BooleanArray) {
-            val members = labels.indices.filter { labels[it] == fg && train[it] }.toIntArray()
+            val members = members(labels, fg, train)
             if (members.isEmpty()) return
             val assign = IntArray(members.size) { i ->
                 val p = members[i]
@@ -303,6 +350,16 @@ object Segmenter {
                 best
             }
             fit(rgb, members, assign)
+        }
+
+        /** Indices labelled [fg] that may train the model, without boxing. */
+        private fun members(labels: BooleanArray, fg: Boolean, train: BooleanArray): IntArray {
+            var count = 0
+            for (i in labels.indices) if (labels[i] == fg && train[i]) count++
+            val out = IntArray(count)
+            var k = 0
+            for (i in labels.indices) if (labels[i] == fg && train[i]) out[k++] = i
+            return out
         }
 
         private fun fit(rgb: FloatArray, members: IntArray, assign: IntArray) {

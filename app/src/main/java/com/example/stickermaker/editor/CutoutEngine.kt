@@ -218,6 +218,8 @@ class CutoutEngine private constructor(
      * was erased then stays erased. Ends with any non-Magic edit, which locks the result in.
      */
     private inner class MagicSession(val base: ByteArray) {
+        /** The image prepared once for the whole session; runs warm-start from each other. */
+        var prepared: Segmenter.Prepared? = null
         val marks = mutableListOf<Mark>()
         val undone = ArrayDeque<Mark>()
         val seeds = ByteArray(width * height)
@@ -239,6 +241,7 @@ class CutoutEngine private constructor(
     }
 
     private var magic: MagicSession? = null
+    private val magicLock = Mutex()
 
     /** The mark being drawn right now, if any. */
     var drawingMark: Mark? = null
@@ -286,8 +289,12 @@ class CutoutEngine private constructor(
         val target = session.marks.lastOrNull() ?: return false
         val seeds = session.seeds.copyOf()
         val job = currentCoroutineContext().job
-        val result = withContext(Dispatchers.Default) {
-            Segmenter.segment(pixels, width, height, session.base, seeds) { job.isActive }
+        // One run at a time: a session's prepared image and graph are reused between runs.
+        val result = magicLock.withLock {
+            withContext(Dispatchers.Default) {
+                val prepared = session.prepared ?: Segmenter.prepare(pixels, width, height).also { session.prepared = it }
+                Segmenter.segment(prepared, session.base, seeds) { job.isActive }
+            }
         } ?: return false
         if (magic !== session || session.marks.lastOrNull() !== target || stroking) return false
         var box = Box.EMPTY

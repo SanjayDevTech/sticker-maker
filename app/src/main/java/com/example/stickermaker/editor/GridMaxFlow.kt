@@ -55,6 +55,20 @@ class GridMaxFlow(val width: Int, val height: Int) {
     var flow = 0.0
         private set
 
+    /** Clears the graph for reuse and loads all edge capacities (`node * 8 + dir`) at once. */
+    fun reset(edges: FloatArray) {
+        edges.copyInto(cap)
+        terminal.fill(0f)
+        queued.fill(false)
+        head = 0
+        size = 0
+        orphanCount = 0
+        stamp.fill(0)
+        dist.fill(0)
+        time = 0
+        flow = 0.0
+    }
+
     fun setEdge(p: Int, d: Int, capacity: Float) {
         cap[p * 8 + d] = capacity
     }
