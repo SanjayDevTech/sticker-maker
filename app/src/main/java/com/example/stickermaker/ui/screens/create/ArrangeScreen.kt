@@ -30,8 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -48,6 +46,9 @@ import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.FileImage
 import com.example.stickermaker.ui.components.IconTile
+import com.example.stickermaker.ui.components.dragLift
+import com.example.stickermaker.ui.components.gridDragReorder
+import com.example.stickermaker.ui.components.rememberGridDragState
 import com.example.stickermaker.ui.components.SegmentedPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerTag
@@ -190,18 +191,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
                     position = index + 1,
                     onRemove = { remove(image, index) },
                     modifier = if (dragging) {
-                        // Lifted: follows the finger (read in the layer phase), tilted like a
-                        // peeled sticker, drawn above its neighbours.
-                        Modifier
-                            .zIndex(1f)
-                            .graphicsLayer {
-                                val d = drag.displacement()
-                                translationX = d.x
-                                translationY = d.y
-                                scaleX = 1.08f
-                                scaleY = 1.08f
-                                rotationZ = 4f
-                            }
+                        Modifier.dragLift(drag)
                     } else {
                         Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
                     },

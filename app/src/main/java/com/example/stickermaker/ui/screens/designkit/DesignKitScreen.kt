@@ -1,6 +1,15 @@
 package com.example.stickermaker.ui.screens.designkit
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import com.example.stickermaker.ui.components.dragLift
+import com.example.stickermaker.ui.components.gridDragReorder
+import com.example.stickermaker.ui.components.rememberGridDragState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -169,6 +178,9 @@ fun DesignKitScreen(onBack: () -> Unit) {
                 }
             }
 
+            item(key = "drag-title", contentType = "section-title") { SectionTitle("Drag to reorder", Modifier.padding(top = Dimens.Space8)) }
+            item(key = "drag", contentType = "demo-block") { DragDemo() }
+
             item(key = "field-title", contentType = "section-title") { SectionTitle("Text field", Modifier.padding(top = Dimens.Space8)) }
             item(key = "field", contentType = "demo-block") {
                 var text by rememberSaveable { mutableStateOf("") }
@@ -297,3 +309,52 @@ fun DesignKitScreen(onBack: () -> Unit) {
         }
     }
 }
+
+private val DragColors = listOf(
+    Palette.Pink, Palette.Yellow, Palette.Lime, Palette.Sky,
+    Palette.Lavender, Palette.Peach, Palette.Mint, Palette.Coral,
+)
+
+/** The Arrange screen's long-press drag, on a fixed 4 × 2 grid of numbered tiles. */
+@Composable
+private fun DragDemo() {
+    val tiles = remember { mutableStateListOf(*DragColors.indices.toList().toTypedArray()) }
+    val grid = rememberLazyGridState()
+    val drag = rememberGridDragState(
+        grid = grid,
+        isDraggable = { true },
+        onMove = { from, to -> tiles.add(tiles.indexOf(to as Int), tiles.removeAt(tiles.indexOf(from as Int))) },
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space8)) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // A lazy grid inside the LazyColumn needs a fixed height: two rows of square tiles.
+            val tile = (maxWidth - Dimens.Space12 * (DRAG_COLUMNS - 1)) / DRAG_COLUMNS
+            LazyVerticalGrid(
+                state = grid,
+                columns = GridCells.Fixed(DRAG_COLUMNS),
+                userScrollEnabled = false,
+                horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+                verticalArrangement = Arrangement.spacedBy(Dimens.Space12),
+                modifier = Modifier
+                    .height(tile * 2 + Dimens.Space12)
+                    .gridDragReorder(drag),
+            ) {
+                gridItems(tiles, key = { it }, contentType = { "tile" }) { id ->
+                    BrutalSurface(
+                        modifier = (if (drag.draggingKey == id) Modifier.dragLift(drag) else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
+                            .aspectRatio(1f)
+                            .padding(end = Dimens.ShadowS, bottom = Dimens.ShadowS),
+                        shape = Shapes.Medium,
+                        color = DragColors[id],
+                        shadow = Dimens.ShadowS,
+                    ) {
+                        Text("${id + 1}", style = MaterialTheme.typography.headlineMedium, color = AppTheme.colors.onBlock, modifier = Modifier.align(Alignment.Center))
+                    }
+                }
+            }
+        }
+        Text("Long-press a tile, then drag it.", style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.inkMuted)
+    }
+}
+
+private const val DRAG_COLUMNS = 4

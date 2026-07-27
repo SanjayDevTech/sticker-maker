@@ -1,4 +1,4 @@
-package com.example.stickermaker.ui.screens.create
+package com.example.stickermaker.ui.components
 
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
@@ -13,8 +13,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.toOffset
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -135,4 +137,17 @@ fun Modifier.gridDragReorder(state: GridDragState): Modifier = pointerInput(stat
         onDragEnd = { state.end() },
         onDragCancel = { state.end() },
     )
+}
+
+/**
+ * The picked-up item: follows the finger (read in the layer phase), tilted like a peeled
+ * sticker, drawn above its neighbours. Give the others `animateItem()` instead.
+ */
+fun Modifier.dragLift(state: GridDragState): Modifier = zIndex(1f).graphicsLayer {
+    val d = state.displacement()
+    translationX = d.x
+    translationY = d.y
+    scaleX = 1.08f
+    scaleY = 1.08f
+    rotationZ = 4f
 }
