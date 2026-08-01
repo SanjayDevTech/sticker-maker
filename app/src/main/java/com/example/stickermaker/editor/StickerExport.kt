@@ -2,8 +2,13 @@ package com.example.stickermaker.editor
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
 import com.example.stickermaker.data.WhatsAppLimits
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -61,6 +66,68 @@ object StickerExport {
         }
     }
 
+    /** How [sticker] (a still, 512 square) moves with [motion], kept inside the margin; null when still or empty. */
+    fun plan(sticker: Bitmap, motion: StickerMotion): MotionPlan? {
+        if (motion == StickerMotion.None) return null
+        val side = sticker.width
+        val pixels = IntArray(side * side).also { sticker.getPixels(it, 0, side, 0, 0, side, side) }
+        return MotionPlan.of(motion, { x, y -> pixels[y * side + x] ushr 24 != 0 }, side, MARGIN_PX)
+    }
+
+    /**
+     * [sticker] (a still, 512 square) moving along [plan], as an animated WebP under WhatsApp's
+     * 500 KB, or null if libwebp isn't available (Android has no animated WebP encoder).
+     */
+    suspend fun encodeAnimated(sticker: Bitmap, plan: MotionPlan): ByteArray? {
+        val side = sticker.width
+        // Called from several threads at once: each frame draws into its own bitmap.
+        val render = { i: Int ->
+            val frame = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            val matrix = Matrix().apply { setValues(plan.frame(i).values()) }
+            Canvas(frame).drawBitmap(sticker, matrix, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+            IntArray(side * side).also { frame.getPixels(it, 0, side, 0, 0, side, side); frame.recycle() }
+        }
+        return encodeFrames(side, plan.motion.frameCount, StickerMotion.FRAME_MS, render)
+    }
+
+    /**
+     * Frames from [render] (unpremultiplied ARGB, called concurrently) as an animated WebP under
+     * the limit. Each frame is encoded once as a full still, all cores at a time:
+     * 1. Lossless, when the first frame shows the whole loop could fit.
+     * 2. Otherwise lossy at the highest quality whose estimate (from three sample frames) fits,
+     *    stepping down if the full encode still comes out too big.
+     */
+    suspend fun encodeFrames(side: Int, frameCount: Int, frameMs: Int, render: (Int) -> IntArray): ByteArray? = coroutineScope {
+        val limit = WhatsAppLimits.ANIMATED_STICKER_MAX_BYTES
+        suspend fun all(encode: (IntArray) -> ByteArray?): List<ByteArray>? =
+            (0 until frameCount).map { i -> async(Dispatchers.Default) { encode(render(i)) } }.awaitAll()
+                .takeIf { frames -> frames.none { it == null } }?.filterNotNull()
+
+        val first = WebpNative.losslessFrame(render(0), side, side) ?: return@coroutineScope null
+        // Frames differ, so leave headroom: a loop that only just fits on paper rarely does.
+        if (first.size.toLong() * frameCount <= limit * 0.85) {
+            val bytes = all { WebpNative.losslessFrame(it, side, side) }?.let { WebpNative.assemble(it, frameMs) }
+            if (bytes != null && bytes.size <= limit) return@coroutineScope bytes
+        }
+
+        val samples = listOf(0, frameCount / 3, 2 * frameCount / 3).distinct().map(render)
+        suspend fun estimate(q: Int): Long = samples
+            .map { async(Dispatchers.Default) { WebpNative.lossyFrame(it, side, side, q)?.size ?: Int.MAX_VALUE } }
+            .awaitAll().sumOf { it.toLong() } * frameCount / samples.size
+        // Highest quality on the ladder whose estimate leaves a little headroom.
+        var lo = 0
+        var hi = ANIM_QUALITIES.lastIndex
+        while (lo < hi) {
+            val mid = (lo + hi) / 2
+            if (estimate(ANIM_QUALITIES[mid]) <= limit * 0.92) hi = mid else lo = mid + 1
+        }
+        for (q in ANIM_QUALITIES.drop(lo)) {
+            val bytes = all { WebpNative.lossyFrame(it, side, side, q) }?.let { WebpNative.assemble(it, frameMs) } ?: return@coroutineScope null
+            if (bytes.size <= limit) return@coroutineScope bytes
+        }
+        null
+    }
+
     /** The 96 px PNG tray icon WhatsApp shows for a pack. */
     fun encodeTray(sticker: Bitmap): ByteArray {
         val px = WhatsAppLimits.TRAY_PX
@@ -92,4 +159,7 @@ object StickerExport {
         }
 
     private const val MIN_QUALITY = 30
+
+    /** Lossy animation qualities, best first. */
+    private val ANIM_QUALITIES = listOf(100, 95, 90, 85, 80, 75, 70, 60, 50, 40, 30, 20)
 }

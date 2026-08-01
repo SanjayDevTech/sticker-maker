@@ -8,8 +8,6 @@ import androidx.core.content.FileProvider
 import java.io.File
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import com.example.stickermaker.editor.StickerExport
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -73,14 +71,14 @@ object WhatsApp {
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
     }
 
-    /** Copies an unsaved sticker: written to the cache first, since the clipboard holds a file link. */
-    suspend fun copySticker(context: Context, sticker: Bitmap) {
+    /** Copies an unsaved sticker (finished WebP bytes): written to the cache first, since the clipboard holds a file link. */
+    suspend fun copySticker(context: Context, webp: ByteArray) {
         val file = withContext(Dispatchers.IO) {
             val dir = File(context.cacheDir, "copy")
             // Only the latest copy matters; older clipboard links may go stale.
             dir.deleteRecursively()
             dir.mkdirs()
-            File(dir, "sticker_${System.currentTimeMillis()}.webp").apply { writeBytes(StickerExport.encodeSticker(sticker)) }
+            File(dir, "sticker_${System.currentTimeMillis()}.webp").apply { writeBytes(webp) }
         }
         copySticker(context, file)
     }

@@ -85,12 +85,13 @@ class PackRepository(context: Context) {
         }
     }
 
-    suspend fun createPack(name: String, publisher: String): StickerPack = edit { packs ->
+    suspend fun createPack(name: String, publisher: String, animated: Boolean = false): StickerPack = edit { packs ->
         val now = System.currentTimeMillis()
         val pack = StickerPack(
             id = newId(),
             name = name.take(WhatsAppLimits.MAX_NAME_CHARS),
             publisher = publisher.take(WhatsAppLimits.MAX_NAME_CHARS),
+            animated = animated,
             createdAt = now,
             updatedAt = now,
         )
@@ -145,15 +146,15 @@ class PackRepository(context: Context) {
     }
 
     /**
-     * Encodes [stickers] (512 squares) into [packId], or into a new pack called [newName], and
-     * returns the pack id. Files are written first, then the index in one step.
+     * Writes finished sticker [files] (WebP bytes) into [packId], or into a new pack called
+     * [newName] ([animated] or still), and returns the pack id. Files first, then the index.
      */
-    suspend fun addStickers(packId: String?, newName: String?, stickers: List<Bitmap>): String {
-        val id = packId ?: createPack(newName?.trim().orEmpty().ifEmpty { "My stickers" }, PUBLISHER).id
-        val added = withContext(Dispatchers.Default) {
-            stickers.map { bitmap ->
+    suspend fun addStickers(packId: String?, newName: String?, animated: Boolean, files: List<ByteArray>): String {
+        val id = packId ?: createPack(newName?.trim().orEmpty().ifEmpty { "My stickers" }, PUBLISHER, animated).id
+        val added = withContext(Dispatchers.IO) {
+            files.map { bytes ->
                 val sticker = Sticker(id = newId(), updatedAt = System.currentTimeMillis())
-                writeAtomically(stickerFile(id, sticker.id), StickerExport.encodeSticker(bitmap))
+                writeAtomically(stickerFile(id, sticker.id), bytes)
                 sticker
             }
         }
@@ -180,7 +181,7 @@ class PackRepository(context: Context) {
         refreshTray(packId)
     }
 
-    /** The tray icon follows the pack's first sticker. */
+    /** The tray icon follows the pack's first sticker (its first frame, if animated). */
     private suspend fun refreshTray(packId: String) = withContext(Dispatchers.Default) {
         val first = pack(packId)?.stickers?.firstOrNull() ?: return@withContext
         val bitmap = BitmapFactory.decodeFile(stickerFile(packId, first.id).path) ?: return@withContext

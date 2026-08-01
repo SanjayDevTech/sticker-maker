@@ -37,7 +37,14 @@ coordinates.
     method 5, exact alpha, at the highest quality that fits. That's +4 dB PSNR over Android's
     lossy encoder. Method 6 and "best" alpha filtering cost seconds for about no gain; don't
     re-add them.
-  - `WebpNative` falls back to Android's encoders if the library is missing.
+  - `WebpNative` falls back to Android's encoders if the library is missing (still stickers only:
+    Android can't encode animated WebP).
+  - **Animated stickers** (`StickerMotion` → `MotionPlan` → `StickerExport.encodeAnimated`): each
+    frame is encoded once as a full still, in parallel, and joined with libwebpmux. Don't switch
+    to `WebPAnimEncoder`: it tries 4–8 encodes per frame looking for changed rectangles, which a
+    sticker moving every frame never has (measured 7–23 s per sticker, against 1–4 s now).
+    Lossless when the first frame shows the loop could fit, else lossy at the highest quality
+    whose 3-frame estimate fits.
 
 ## Architecture: keep it simple
 
@@ -130,6 +137,8 @@ These were checked on a real device. Don't re-litigate them without new evidence
   serving them until WhatsApp's whitelist check says WhatsApp no longer has them.
   - Unknown pack IDs get a "Deleted pack" stand-in, so WhatsApp can still remove packs
     deleted before retiring existed.
+- **Animated packs:** a pack is all still or all animated (`animated_sticker_pack`), never mixed.
+  Animated stickers: ≤ 500 KB, ≤ 10 s, frames ≥ 8 ms (from the official sample's validator).
 - **WhatsApp only refreshes its pack list after it restarts**, for adds and removes alike.
   An app can't force that.
 - **Single stickers without a pack:** WhatsApp's message box accepts `image/webp.wasticker`

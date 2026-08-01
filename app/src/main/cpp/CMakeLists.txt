@@ -1,4 +1,4 @@
-# Google's libwebp, for maximum-effort lossless sticker encoding (Android's built-in encoder
+# Google's libwebp, for maximum-effort lossless sticker encoding and animated stickers (Android's built-in encoder
 # only does a fast lossless pass: about twice the bytes for identical pixels).
 cmake_minimum_required(VERSION 3.22.1)
 project(stickerwebp C)
@@ -14,11 +14,13 @@ foreach(type RELEASE RELWITHDEBINFO MINSIZEREL)
     set(CMAKE_C_FLAGS_${type} "-Oz -DNDEBUG")
 endforeach()
 
-# Only the library: none of libwebp's command-line tools, mux or extras.
-foreach(opt ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO LIBWEBPMUX WEBPMUX EXTRAS)
+# Only the encoder and the mux library (which joins frames into animated stickers): none of
+# libwebp's command-line tools or extras.
+foreach(opt ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO WEBPMUX EXTRAS)
     set(WEBP_BUILD_${opt} OFF CACHE BOOL "" FORCE)
 endforeach()
 set(WEBP_NEAR_LOSSLESS OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_LIBWEBPMUX ON CACHE BOOL "" FORCE)
 
 # Pinned release, verified by hash. Bump both together.
 FetchContent_Declare(
@@ -29,7 +31,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(libwebp)
 
 add_library(stickerwebp SHARED webp_jni.c)
-target_link_libraries(stickerwebp PRIVATE webp)
+target_link_libraries(stickerwebp PRIVATE libwebpmux webp)
 
 # Only the JNI entry points are exported; unused code and identical functions are folded away.
 target_link_options(stickerwebp PRIVATE -flto=thin -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,--icf=all)

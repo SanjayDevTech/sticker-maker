@@ -8,6 +8,9 @@ object WhatsAppLimits {
     const val MAX_STICKERS = 30
     const val STICKER_PX = 512
     const val STICKER_MAX_BYTES = 100 * 1024
+    const val ANIMATED_STICKER_MAX_BYTES = 500 * 1024
+    /** Longest animation WhatsApp accepts. */
+    const val ANIMATED_MAX_MS = 10_000
     const val TRAY_PX = 96
     const val TRAY_MAX_BYTES = 50 * 1024
     const val MAX_EMOJIS = 3
@@ -34,6 +37,8 @@ data class StickerPack(
      * already has was updated (image_data_version).
      */
     val imageDataVersion: Int = 1,
+    /** WhatsApp packs are all still or all animated, never mixed. */
+    val animated: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 ) {

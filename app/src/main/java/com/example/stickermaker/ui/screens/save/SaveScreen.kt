@@ -8,7 +8,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,6 +45,15 @@ import com.example.stickermaker.ui.components.BrutalTextField
 import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.IconTile
+import com.example.stickermaker.ui.components.MotionImage
+import com.example.stickermaker.editor.MotionPlan
+import com.example.stickermaker.editor.StickerExport
+import com.example.stickermaker.editor.StickerMotion
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asAndroidBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.stickermaker.ui.components.PackTray
 import com.example.stickermaker.ui.components.SectionTitle
 import com.example.stickermaker.ui.components.SegmentedPicker
@@ -77,7 +84,11 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
     fun copy(index: Int) {
         scope.launch {
-            val sticker = vm.stickerAt(index) ?: return@launch
+            val sticker = vm.stickerAt(index)
+            if (sticker == null) {
+                toasts.show("Couldn't copy that one. Try again?")
+                return@launch
+            }
             WhatsApp.copySticker(context, sticker)
             toasts.show(if (state.count > 1) "Sticker ${index + 1} copied. Paste it in a chat." else "Copied. Paste it in a chat.")
         }
@@ -146,7 +157,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
         ) {
             Text("Save", style = MaterialTheme.typography.displayMedium)
-            Previews(state.loading, state.previews, onCopy = ::copy)
+            Previews(state.loading, state.previews, state.plans, onCopy = ::copy)
             Text(
                 if (state.count > 1) {
                     "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed."
@@ -171,10 +182,26 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 color = colors.inkMuted,
             )
 
+            SectionTitle("Motion", Modifier.padding(top = Dimens.Space8))
+            MotionPicker(
+                sample = state.previews.firstOrNull(),
+                selected = state.motion,
+                onSelect = vm::setMotion,
+            )
+            Text(
+                if (state.animated) {
+                    "Moving stickers go in animated packs: WhatsApp keeps still and moving packs apart."
+                } else {
+                    "Make it move: WhatsApp plays it on a loop."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.inkMuted,
+            )
+
             SectionTitle("Pack", Modifier.padding(top = Dimens.Space8))
             PackOption(
                 selected = state.targetId == null,
-                title = "New pack",
+                title = if (state.animated) "New animated pack" else "New pack",
                 subtitle = "Start a fresh pack",
                 color = Palette.Lime,
                 onClick = { vm.setTarget(null) },
@@ -194,16 +221,16 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 )
             }
             state.packs.forEach { pack ->
-                val room = state.hasRoom(pack)
                 PackOption(
                     selected = state.targetId == pack.id,
                     title = pack.name,
                     subtitle = when {
-                        room -> "${pack.stickers.size} of ${WhatsAppLimits.MAX_STICKERS} stickers"
-                        else -> "No room: a pack holds ${WhatsAppLimits.MAX_STICKERS}"
+                        pack.animated != state.animated -> if (pack.animated) "Animated pack: only moving stickers" else "Still pack: only still stickers"
+                        !state.hasRoom(pack) -> "No room: a pack holds ${WhatsAppLimits.MAX_STICKERS}"
+                        else -> "${pack.stickers.size} of ${WhatsAppLimits.MAX_STICKERS} stickers"
                     },
                     color = Palette.Sky,
-                    enabled = room,
+                    enabled = state.accepts(pack),
                     onClick = { vm.setTarget(pack.id) },
                     thumbs = pack,
                 )
@@ -214,7 +241,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Previews(loading: Boolean, previews: List<ImageBitmap>, onCopy: (Int) -> Unit) {
+private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, onCopy: (Int) -> Unit) {
     val perRow = 3
     if (loading) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -235,16 +262,54 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, onCopy: (Int
                 onClick = { onCopy(i) },
                 onClickLabel = "Copy sticker ${i + 1}",
             ) {
-                Image(
+                MotionImage(
                     image,
+                    plan = plans.getOrNull(i),
                     contentDescription = "Sticker ${i + 1}",
                     modifier = Modifier.fillMaxSize().checkerboard(6.dp),
-                    contentScale = ContentScale.Fit,
                 )
             }
         }
         // Keep the last row's tiles the same size as the others.
         repeat((perRow - previews.size % perRow) % perRow) { Box(Modifier.weight(1f)) }
+    }
+}
+
+/** Every motion as a tile, each playing it on [sample] (the first sticker). */
+@Composable
+private fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect: (StickerMotion) -> Unit) {
+    val colors = AppTheme.colors
+    // Plans need the sample's pixels: built once per sample, off the main thread.
+    val plans by produceState<Map<StickerMotion, MotionPlan?>>(emptyMap(), sample) {
+        val still = sample?.asAndroidBitmap() ?: return@produceState
+        value = withContext(Dispatchers.Default) { StickerMotion.entries.associateWith { StickerExport.plan(still, it) } }
+    }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(end = Dimens.ShadowM, bottom = Dimens.ShadowM),
+    ) {
+        StickerMotion.entries.forEach { motion ->
+            val on = motion == selected
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Dimens.Space4)) {
+                BrutalSurface(
+                    modifier = Modifier.size(72.dp),
+                    shape = Shapes.Medium,
+                    color = if (on) Palette.Yellow else colors.surface,
+                    borderWidth = if (on) Dimens.BorderThick else Dimens.Border,
+                    shadow = if (on) Dimens.ShadowM else Dimens.ShadowS,
+                    onClick = { onSelect(motion) },
+                    onClickLabel = motion.label,
+                ) {
+                    if (sample != null) {
+                        MotionImage(sample, plans[motion], contentDescription = null, modifier = Modifier.fillMaxSize().padding(Dimens.Space4))
+                    }
+                }
+                Text(motion.label, style = MaterialTheme.typography.labelLarge)
+            }
+        }
     }
 }
 
