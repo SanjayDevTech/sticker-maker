@@ -148,6 +148,7 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
                                     file = file,
                                     maxPx = 192,
                                     contentScale = ContentScale.Fit,
+                                    animated = selected.animated,
                                     modifier = Modifier.fillMaxSize().padding(4.dp),
                                 )
                             }

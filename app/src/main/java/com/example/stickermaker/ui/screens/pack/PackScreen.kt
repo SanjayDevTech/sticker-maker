@@ -187,6 +187,7 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
             itemsIndexed(pack.stickers, key = { _, it -> it.id }, contentType = { _, _ -> "sticker" }) { index, sticker ->
                 StickerTile(
                     packId = pack.id,
+                    animated = pack.animated,
                     sticker = sticker,
                     onClick = { emojiFor = sticker.id },
                     onLongClick = {
@@ -227,6 +228,7 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
     if (emojiSticker != null) {
         EmojiSheet(
             packId = pack.id,
+            animated = pack.animated,
             sticker = emojiSticker,
             onDismiss = { emojiFor = null },
             onDone = { emojis ->
@@ -298,6 +300,7 @@ private fun Header(pack: StickerPack, inWhatsApp: Boolean, onRename: () -> Unit,
 @Composable
 private fun StickerTile(
     packId: String,
+    animated: Boolean,
     sticker: Sticker,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -318,6 +321,7 @@ private fun StickerTile(
             FileImage(
                 file = packs.stickerFile(packId, sticker.id),
                 contentScale = ContentScale.Fit,
+                animated = animated,
                 modifier = Modifier.fillMaxSize().checkerboard(),
             )
         }
@@ -370,6 +374,7 @@ private val EMOJIS = listOf(
 @Composable
 private fun EmojiSheet(
     packId: String,
+    animated: Boolean,
     sticker: Sticker,
     onDismiss: () -> Unit,
     onDone: (List<String>) -> Unit,
@@ -383,6 +388,7 @@ private fun EmojiSheet(
                 FileImage(
                     file = packs.stickerFile(packId, sticker.id),
                     contentScale = ContentScale.Fit,
+                    animated = animated,
                     modifier = Modifier.fillMaxSize().checkerboard(6.dp),
                 )
             }

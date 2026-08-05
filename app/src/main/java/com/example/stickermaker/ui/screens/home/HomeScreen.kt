@@ -280,6 +280,7 @@ private fun PackCard(pack: StickerPack, color: Color, onClick: () -> Unit, modif
                             file = files.stickerFile(pack.id, sticker.id),
                             maxPx = 192,
                             contentScale = ContentScale.Fit,
+                            animated = pack.animated,
                             modifier = Modifier.fillMaxSize().checkerboard(5.dp),
                         )
                     }
