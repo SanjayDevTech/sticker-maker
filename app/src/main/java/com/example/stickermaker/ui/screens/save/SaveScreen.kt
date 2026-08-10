@@ -8,6 +8,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,9 +86,23 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    // Stickers whose copy is taking a while (moving ones still encoding).
+    val copying = remember { mutableStateListOf<Int>() }
+
     fun copy(index: Int) {
+        if (index in copying) return
         scope.launch {
-            val sticker = vm.stickerAt(index)
+            // Only show progress if it's slow: an instant copy shouldn't flash anything.
+            val progress = launch {
+                delay(COPY_PROGRESS_DELAY_MS)
+                copying += index
+            }
+            val sticker = try {
+                vm.stickerAt(index)
+            } finally {
+                progress.cancel()
+                copying -= index
+            }
             if (sticker == null) {
                 toasts.show("Couldn't copy that one. Try again?")
                 return@launch
@@ -125,11 +143,11 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 // One sticker: Copy sits next to Save. Several: each preview tile copies itself.
                 if (state.count == 1) {
                     ChunkyButton(
-                        text = "Copy",
+                        text = if (0 in copying) "Copying…" else "Copy",
                         onClick = { copy(0) },
                         color = Palette.Sky,
                         size = ChunkySize.Large,
-                        enabled = !state.loading,
+                        enabled = !state.loading && 0 !in copying,
                         modifier = Modifier.weight(0.4f),
                     )
                 }
@@ -157,7 +175,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
         ) {
             Text("Save", style = MaterialTheme.typography.displayMedium)
-            Previews(state.loading, state.previews, state.plans, onCopy = ::copy)
+            Previews(state.loading, state.previews, state.plans, copying, onCopy = ::copy)
             Text(
                 if (state.count > 1) {
                     "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed."
@@ -241,7 +259,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, onCopy: (Int) -> Unit) {
+private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, copying: List<Int>, onCopy: (Int) -> Unit) {
     val perRow = 3
     if (loading) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -268,6 +286,15 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<
                     contentDescription = "Sticker ${i + 1}",
                     modifier = Modifier.fillMaxSize().checkerboard(6.dp),
                 )
+                // Fully qualified: inside FlowRow, the RowScope overload would win and not compile.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = i in copying,
+                    enter = fadeIn(Motion.effects()) + scaleIn(Motion.spatial(), initialScale = 0.6f),
+                    exit = fadeOut(Motion.effects()),
+                    modifier = Modifier.align(Alignment.Center),
+                ) {
+                    StickerTag("Copying…", Palette.Yellow, rotation = -4f)
+                }
             }
         }
         // Keep the last row's tiles the same size as the others.
@@ -312,6 +339,8 @@ private fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect
         }
     }
 }
+
+private const val COPY_PROGRESS_DELAY_MS = 400L
 
 @Composable
 private fun PackOption(

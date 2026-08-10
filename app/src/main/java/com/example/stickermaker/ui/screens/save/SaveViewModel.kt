@@ -15,7 +15,11 @@ import com.example.stickermaker.editor.Compositor
 import com.example.stickermaker.editor.MotionPlan
 import com.example.stickermaker.editor.StickerExport
 import com.example.stickermaker.editor.StickerMotion
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -133,6 +137,7 @@ class SaveViewModel(
         local.update {
             it.copy(loading = false, previews = stills.map(Bitmap::asImageBitmap), plans = if (motion == StickerMotion.None) emptyList() else plans)
         }
+        prefetch()
     }
 
     private suspend fun stills(outline: Boolean): List<Bitmap> = if (outline) {
@@ -141,28 +146,60 @@ class SaveViewModel(
         plain
     }
 
-    /** Finished WebP of each sticker for this outline and motion, built once and reused. */
-    private val encoded = HashMap<Triple<Int, Boolean, StickerMotion>, ByteArray>()
+    private data class Key(val index: Int, val outline: Boolean, val motion: StickerMotion)
 
-    private suspend fun encode(index: Int, outline: Boolean, motion: StickerMotion): ByteArray? {
-        val key = Triple(index, outline, motion)
-        encoded[key]?.let { return it }
-        val still = stills(outline).getOrNull(index) ?: return null
-        val bytes = withContext(Dispatchers.Default) {
-            if (motion == StickerMotion.None) {
-                StickerExport.encodeSticker(still)
-            } else {
-                StickerExport.plan(still, motion)?.let { StickerExport.encodeAnimated(still, it) }
+    /**
+     * Finished WebP of each sticker per outline and motion, built once and shared: a copy or
+     * save that arrives while it's still encoding waits for the same work.
+     */
+    private val encoded = HashMap<Key, Deferred<ByteArray?>>()
+
+    private fun encode(index: Int, outline: Boolean, motion: StickerMotion): Deferred<ByteArray?> {
+        val key = Key(index, outline, motion)
+        encoded[key]?.let { if (!it.isCancelled) return it }
+        return viewModelScope.async {
+            val still = stills(outline).getOrNull(index) ?: return@async null
+            try {
+                withContext(Dispatchers.Default) {
+                    if (motion == StickerMotion.None) {
+                        StickerExport.encodeSticker(still)
+                    } else {
+                        StickerExport.plan(still, motion)?.let { StickerExport.encodeAnimated(still, it) }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't encode sticker $index", e)
+                null
             }
-        } ?: return null
-        encoded[key] = bytes
-        return bytes
+        }.also { encoded[key] = it }
+    }
+
+    private var prefetch: Job? = null
+
+    /**
+     * Moving stickers take a second or more each, so once a choice has settled they start
+     * encoding in the background: Copy and Save then usually find them done. Work for choices
+     * since left behind is cancelled.
+     */
+    private fun prefetch() {
+        prefetch?.cancel()
+        val s = local.value
+        encoded.entries.removeAll { (key, job) ->
+            (key.outline != s.outline || key.motion != s.motion).also { stale -> if (stale) job.cancel() }
+        }
+        if (!s.animated) return
+        prefetch = viewModelScope.launch {
+            delay(PREFETCH_DELAY_MS)
+            plain.indices.forEach { encode(it, s.outline, s.motion).await() }
+        }
     }
 
     /** Sticker [index] as it would be saved (outline and motion included), for copying without a pack. */
     suspend fun stickerAt(index: Int): ByteArray? {
         val s = local.value
-        return encode(index, s.outline, s.motion)
+        return encode(index, s.outline, s.motion).await()
     }
 
     fun setTarget(id: String?) = local.update { it.copy(targetId = id) }
@@ -174,7 +211,7 @@ class SaveViewModel(
         local.update { it.copy(saving = true) }
         viewModelScope.launch {
             val files = runCatching {
-                plain.indices.map { i -> async { encode(i, s.outline, s.motion) } }.awaitAll()
+                plain.indices.map { i -> encode(i, s.outline, s.motion) }.awaitAll()
             }.getOrNull()
             val id = if (files == null || files.any { it == null }) {
                 Log.w(TAG, "Couldn't encode every sticker")
@@ -194,6 +231,7 @@ class SaveViewModel(
 
     private companion object {
         const val TAG = "Save"
+        const val PREFETCH_DELAY_MS = 700L
         fun defaultName(packs: List<StickerPack>) = if (packs.isEmpty()) "My stickers" else "My stickers ${packs.size + 1}"
     }
 }
