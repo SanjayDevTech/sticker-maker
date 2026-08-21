@@ -66,9 +66,9 @@ internal object WebpNative {
     fun lossyFrame(argb: IntArray, width: Int, height: Int, quality: Int): ByteArray? =
         if (!loaded) null else runCatching { encodeLossy(argb, width, height, quality.toFloat(), FRAME_METHOD) }.getOrNull()
 
-    /** Still WebP [frames] joined into one looping animation, [frameMs] per frame, or null. */
-    fun assemble(frames: List<ByteArray>, frameMs: Int): ByteArray? =
-        if (!loaded) null else runCatching { assemble(frames.toTypedArray(), frameMs) }
+    /** Still WebP [frames] joined into one looping animation, frame i shown [durations] ms, or null. */
+    fun assemble(frames: List<ByteArray>, durations: IntArray): ByteArray? =
+        if (!loaded) null else runCatching { assemble(frames.toTypedArray(), durations) }
             .onFailure { Log.w("WebpNative", "libwebp assemble failed", it) }
             .getOrNull()
 
@@ -89,7 +89,7 @@ internal object WebpNative {
     private const val FRAME_METHOD = 4
 
     @JvmStatic
-    private external fun assemble(frames: Array<ByteArray>, frameMs: Int): ByteArray?
+    private external fun assemble(frames: Array<ByteArray>, durations: IntArray): ByteArray?
 
     @JvmStatic
     private external fun encodeLossless(argb: IntArray, width: Int, height: Int, level: Int): ByteArray?

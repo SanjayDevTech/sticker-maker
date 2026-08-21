@@ -99,17 +99,19 @@ Java_com_example_stickermaker_editor_WebpNative_encodeLossy(
 // rectangles, which buys nothing when the whole sticker moves every frame: measured 7-23 s
 // per sticker on a Pixel 9, against well under a second this way.
 
-// Joins still WebP files into one looping animation, each frame shown for [frameMs] and fully
+// Joins still WebP files into one looping animation, frame i shown for durations[i] ms and fully
 // replacing the last (no blending, so moving transparent edges leave no trails). Returns the
 // file bytes, or null on failure.
 JNIEXPORT jbyteArray JNICALL
 Java_com_example_stickermaker_editor_WebpNative_assemble(
-        JNIEnv *env, jclass clazz, jobjectArray frames, jint frameMs) {
+        JNIEnv *env, jclass clazz, jobjectArray frames, jintArray durations) {
     (void) clazz;
-    WebPMux *mux = WebPMuxNew();
-    if (mux == NULL) return NULL;
-    int ok = 1;
     jsize count = (*env)->GetArrayLength(env, frames);
+    if ((*env)->GetArrayLength(env, durations) != count) return NULL;
+    jint *ms = (*env)->GetIntArrayElements(env, durations, NULL);
+    if (ms == NULL) return NULL;
+    WebPMux *mux = WebPMuxNew();
+    int ok = mux != NULL;
     for (jsize i = 0; ok && i < count; i++) {
         jbyteArray frame = (jbyteArray) (*env)->GetObjectArrayElement(env, frames, i);
         jsize size = (*env)->GetArrayLength(env, frame);
@@ -122,7 +124,7 @@ Java_com_example_stickermaker_editor_WebpNative_assemble(
             info.bitstream.bytes = (const uint8_t *) bytes;
             info.bitstream.size = (size_t) size;
             info.id = WEBP_CHUNK_ANMF;
-            info.duration = frameMs;
+            info.duration = ms[i];
             info.dispose_method = WEBP_MUX_DISPOSE_NONE;
             info.blend_method = WEBP_MUX_NO_BLEND;
             ok = WebPMuxPushFrame(mux, &info, 1) == WEBP_MUX_OK; // copies the data
@@ -130,6 +132,8 @@ Java_com_example_stickermaker_editor_WebpNative_assemble(
         }
         (*env)->DeleteLocalRef(env, frame);
     }
+    (*env)->ReleaseIntArrayElements(env, durations, ms, JNI_ABORT);
+    if (mux == NULL) return NULL;
     WebPMuxAnimParams params;
     params.bgcolor = 0x00000000; // transparent
     params.loop_count = 0; // forever

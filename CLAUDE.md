@@ -43,8 +43,13 @@ coordinates.
     frame is encoded once as a full still, in parallel, and joined with libwebpmux. Don't switch
     to `WebPAnimEncoder`: it tries 4–8 encodes per frame looking for changed rectangles, which a
     sticker moving every frame never has (measured 7–23 s per sticker, against 1–4 s now).
-    Lossless when the first frame shows the loop could fit, else lossy at the highest quality
-    whose 3-frame estimate fits.
+    Lossless when the first frame shows the loop could fit. Otherwise lossy: three sample
+    frames give bytes per frame at each quality, which sets quality (and, for GIFs, how many
+    frames to keep) before the single full pass. Frames render in order and at most one per
+    core is in flight, so memory stays flat for long clips.
+  - **GIFs** (`editor/Gif`): our own decoder, since Android never hands out single GIF frames.
+    Trimmed to ≤ 10 s, at most 25 fps, fitted into the square; too heavy for 500 KB at quality
+    50 → drop every third frame and re-estimate. A 10 s 480×270 GIF takes ~5–6 s on the Pixel 9.
 
 ## Architecture: keep it simple
 
