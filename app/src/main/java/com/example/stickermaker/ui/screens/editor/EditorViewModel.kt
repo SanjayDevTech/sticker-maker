@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.stickermaker.data.SessionImage
 import com.example.stickermaker.data.SessionMode
 import com.example.stickermaker.data.StickerSession
+import com.example.stickermaker.data.Trim
+import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.CutoutEngine
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +30,12 @@ data class EditorUiState(
     val images: List<SessionImage> = emptyList(),
     val index: Int = 0,
     val mode: SessionMode = SessionMode.Separate,
-    /** Null while the current image loads. */
+    /** Null while the current image loads, and for GIFs (trimmed, not cut out). */
     val engine: CutoutEngine? = null,
+    /** The current image's parsed GIF, if it is one; null while loading. */
+    val gif: Gif? = null,
+    /** The current GIF's chosen part. */
+    val trim: Trim? = null,
     val failed: Boolean = false,
     // Auto first: one tap on the background clears most photos; Brush is for touch-ups.
     val tool: EditTool = EditTool.Auto,
@@ -52,6 +58,10 @@ data class EditorUiState(
     val magicBusy: Boolean = false,
 ) {
     val current: SessionImage? get() = images.getOrNull(index)
+    val isGif: Boolean get() = current?.isGif == true
+
+    /** The current image is open and ready (cut-out engine or GIF). */
+    val ready: Boolean get() = engine != null || gif != null
     val isLast get() = index >= images.lastIndex
 
     /** Brush diameter in image pixels, 1..150. Squared so the small sizes get most of the travel. */
@@ -98,8 +108,15 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
         magicJob?.cancel()
         val image = _state.value.images[index]
         _state.update {
-            it.copy(index = index, engine = null, failed = false, canUndo = false, canRedo = false, adjustingFill = false,
-                magicMarks = 0, magicBusy = false)
+            it.copy(index = index, engine = null, gif = null, trim = null, failed = false, canUndo = false, canRedo = false,
+                adjustingFill = false, magicMarks = 0, magicBusy = false)
+        }
+        if (image.isGif) {
+            loadJob = viewModelScope.launch {
+                val gif = withContext(Dispatchers.IO) { session.gif(image) }
+                _state.update { it.copy(gif = gif, trim = session.trim(image), failed = gif == null) }
+            }
+            return
         }
         loadJob = viewModelScope.launch {
             val history = session.history(image)
@@ -117,6 +134,13 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
                 )
             }
         }
+    }
+
+    /** The current GIF's part to keep (already within WhatsApp's 10 s). */
+    fun setTrim(trim: Trim) {
+        val image = _state.value.current ?: return
+        session.setTrim(image, trim)
+        _state.update { it.copy(trim = trim) }
     }
 
     fun setTool(tool: EditTool) = _state.update {

@@ -45,6 +45,7 @@ import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.FileImage
+import com.example.stickermaker.ui.components.GifTag
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.dragLift
 import com.example.stickermaker.ui.components.gridDragReorder
@@ -103,6 +104,9 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
         session.remove(image.id)
         scope.launch { if (toasts.showUndo("Image removed")) session.restore(image, index) }
     }
+
+    val hasGif = images.any { it.isGif }
+    LaunchedEffect(hasGif) { if (hasGif) session.mode.value = SessionMode.Separate }
 
     Scaffold(
         containerColor = colors.canvas,
@@ -163,7 +167,8 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
             item(key = "header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space8), modifier = Modifier.padding(bottom = Dimens.Space8)) {
                     Text("Arrange", style = MaterialTheme.typography.displayMedium)
-                    if (images.size > 1) {
+                    // GIFs can't be layered yet (they'd freeze on their first frame), so no Combine.
+                    if (images.size > 1 && !hasGif) {
                         SegmentedPicker(
                             options = SessionMode.entries,
                             selected = mode,
@@ -175,6 +180,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
                     Text(
                         when {
                             images.size <= 1 -> "Each image becomes one sticker. Long-press to drag."
+                            hasGif -> "Each image becomes its own sticker, in this order. GIFs can't be combined yet. Long-press to drag."
                             mode == SessionMode.Combine ->
                                 "All images become one sticker. This is the starting stack (1 at the back); you can restack in the editor."
                             else -> "Each image becomes its own sticker, in this order. Long-press to drag."
@@ -236,6 +242,7 @@ private fun ImageTile(
                 file = image.file,
                 modifier = Modifier.fillMaxSize().checkerboard(),
                 contentScale = ContentScale.Fit,
+                animated = image.isGif,
             )
         }
         StickerTag(
@@ -244,6 +251,7 @@ private fun ImageTile(
             rotation = -6f,
             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
         )
+        if (image.isGif) GifTag(Modifier.align(Alignment.BottomStart).padding(start = 4.dp, bottom = 8.dp))
         IconTile(
             R.drawable.ic_close,
             "Remove image $position",

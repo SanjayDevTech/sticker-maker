@@ -10,8 +10,10 @@ import com.example.stickermaker.data.PackRepository
 import com.example.stickermaker.data.SessionMode
 import com.example.stickermaker.data.StickerPack
 import com.example.stickermaker.data.StickerSession
+import com.example.stickermaker.data.Trim
 import com.example.stickermaker.data.WhatsAppLimits
 import com.example.stickermaker.editor.Compositor
+import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.MotionPlan
 import com.example.stickermaker.editor.StickerExport
 import com.example.stickermaker.editor.StickerMotion
@@ -34,6 +36,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** A GIF sticker: the clip and the part kept. */
+data class GifClip(val gif: Gif, val trim: Trim)
+
 data class SaveUiState(
     val loading: Boolean = true,
     /** What will be saved, as shown (with the outline when it's on). */
@@ -45,6 +50,8 @@ data class SaveUiState(
     val motion: StickerMotion = StickerMotion.None,
     /** How each preview moves, aligned with [previews]; empty while still. */
     val plans: List<MotionPlan?> = emptyList(),
+    /** Which stickers are GIFs (by index): they play as they are, no outline or motion. */
+    val gifs: Map<Int, GifClip> = emptyMap(),
     val packs: List<StickerPack> = emptyList(),
     /** The pack to add to; null means a new pack called [newName]. */
     val targetId: String? = null,
@@ -52,7 +59,11 @@ data class SaveUiState(
     val saving: Boolean = false,
 ) {
     val count get() = previews.size
-    val animated get() = motion != StickerMotion.None
+    /** Any GIF makes the whole batch animated: a pack can't mix still and moving stickers. */
+    val animated get() = motion != StickerMotion.None || gifs.isNotEmpty()
+
+    /** Some stickers are cut-outs (outline and motion apply to them). */
+    val hasStills get() = count > gifs.size
     fun hasRoom(pack: StickerPack) = pack.stickers.size + count <= WhatsAppLimits.MAX_STICKERS
 
     /** Has room, and is the same kind (still or animated) as these stickers. */
@@ -87,26 +98,46 @@ class SaveViewModel(
     private val _failed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val failed: SharedFlow<Unit> = _failed.asSharedFlow()
 
+    /** Each sticker as a still: the cut-out, or a GIF's first kept frame. */
     private var plain: List<Bitmap> = emptyList()
     private var outlined: List<Bitmap>? = null
+    private var gifs: Map<Int, GifClip> = emptyMap()
+
+    private class Rendered(val still: Bitmap, val gif: GifClip? = null)
 
     init {
         viewModelScope.launch {
             val combined = session.combined
-            val rendered: List<Bitmap?> = if (session.mode.value == SessionMode.Combine && combined != null) {
-                listOf(combined)
+            val rendered: List<Rendered?> = if (session.mode.value == SessionMode.Combine && combined != null) {
+                listOf(Rendered(combined))
             } else {
                 session.images.value.map { image ->
                     async(Dispatchers.Default) {
-                        val mask = session.readMask(image)
-                        runCatching { Compositor.cutout(image.file, mask)?.let(StickerExport::fit) }
-                            .onFailure { Log.w(TAG, "Couldn't render ${image.id}", it) }
-                            .getOrNull()
+                        runCatching {
+                            if (image.isGif) {
+                                val gif = session.gif(image) ?: return@runCatching null
+                                val trim = session.trim(image)
+                                val first = StickerExport.fitGifFrame(gif, gif.frameAt(trim.startMs), WhatsAppLimits.STICKER_PX)
+                                val px = WhatsAppLimits.STICKER_PX
+                                Rendered(Bitmap.createBitmap(first, px, px, Bitmap.Config.ARGB_8888), GifClip(gif, trim))
+                            } else {
+                                Compositor.cutout(image.file, session.readMask(image))?.let { Rendered(StickerExport.fit(it)) }
+                            }
+                        }.onFailure { Log.w(TAG, "Couldn't render ${image.id}", it) }.getOrNull()
                     }
                 }.awaitAll()
             }
-            plain = rendered.filterNotNull()
-            local.update { it.copy(skipped = rendered.count { b -> b == null }) }
+            val kept = rendered.filterNotNull()
+            plain = kept.map { it.still }
+            gifs = kept.withIndex().mapNotNull { (i, r) -> r.gif?.let { i to it } }.toMap()
+            local.update { s ->
+                s.copy(
+                    skipped = rendered.count { it == null },
+                    gifs = gifs,
+                    // Stills next to a GIF must move too (all-animated pack): give them a motion.
+                    motion = if (gifs.isNotEmpty() && s.motion == StickerMotion.None) StickerMotion.Wiggle else s.motion,
+                )
+            }
             refresh()
         }
     }
@@ -117,9 +148,11 @@ class SaveViewModel(
     }
 
     fun setMotion(motion: StickerMotion) {
+        // Next to a GIF, stills can't stay still (see init).
+        if (motion == StickerMotion.None && gifs.isNotEmpty()) return
         local.update { s ->
             // A pack that's the wrong kind now can't take them: fall back to a new pack.
-            val keep = s.target?.let { it.animated == (motion != StickerMotion.None) } ?: true
+            val keep = s.target?.let { it.animated == (motion != StickerMotion.None || gifs.isNotEmpty()) } ?: true
             s.copy(motion = motion, targetId = if (keep) s.targetId else null)
         }
         viewModelScope.launch { refresh() }
@@ -130,7 +163,9 @@ class SaveViewModel(
         val outline = local.value.outline
         val motion = local.value.motion
         val stills = stills(outline)
-        val plans = withContext(Dispatchers.Default) { stills.map { StickerExport.plan(it, motion) } }
+        val plans = withContext(Dispatchers.Default) {
+            stills.mapIndexed { i, still -> if (i in gifs) null else StickerExport.plan(still, motion) }
+        }
         // A quick double toggle: only show what's currently chosen.
         val now = local.value
         if (now.outline != outline || now.motion != motion) return
@@ -141,12 +176,18 @@ class SaveViewModel(
     }
 
     private suspend fun stills(outline: Boolean): List<Bitmap> = if (outline) {
-        outlined ?: withContext(Dispatchers.Default) { plain.map(StickerExport::withOutline) }.also { outlined = it }
+        outlined ?: withContext(Dispatchers.Default) {
+            plain.mapIndexed { i, still -> if (i in gifs) still else StickerExport.withOutline(still) }
+        }.also { outlined = it }
     } else {
         plain
     }
 
-    private data class Key(val index: Int, val outline: Boolean, val motion: StickerMotion)
+    /** A GIF's file depends on neither outline nor motion: its key leaves them out. */
+    private data class Key(val index: Int, val outline: Boolean, val motion: StickerMotion, val gif: Boolean = false)
+
+    private fun keyFor(index: Int, outline: Boolean, motion: StickerMotion) =
+        if (index in gifs) Key(index, outline = false, motion = StickerMotion.None, gif = true) else Key(index, outline, motion)
 
     /**
      * Finished WebP of each sticker per outline and motion, built once and shared: a copy or
@@ -155,13 +196,16 @@ class SaveViewModel(
     private val encoded = HashMap<Key, Deferred<ByteArray?>>()
 
     private fun encode(index: Int, outline: Boolean, motion: StickerMotion): Deferred<ByteArray?> {
-        val key = Key(index, outline, motion)
+        val key = keyFor(index, outline, motion)
         encoded[key]?.let { if (!it.isCancelled) return it }
+        val clip = gifs[index]
         return viewModelScope.async {
             val still = stills(outline).getOrNull(index) ?: return@async null
             try {
                 withContext(Dispatchers.Default) {
-                    if (motion == StickerMotion.None) {
+                    if (clip != null) {
+                        StickerExport.encodeGif(clip.gif, clip.trim.startMs, clip.trim.endMs)
+                    } else if (motion == StickerMotion.None) {
                         StickerExport.encodeSticker(still)
                     } else {
                         StickerExport.plan(still, motion)?.let { StickerExport.encodeAnimated(still, it) }
@@ -187,7 +231,7 @@ class SaveViewModel(
         prefetch?.cancel()
         val s = local.value
         encoded.entries.removeAll { (key, job) ->
-            (key.outline != s.outline || key.motion != s.motion).also { stale -> if (stale) job.cancel() }
+            (!key.gif && (key.outline != s.outline || key.motion != s.motion)).also { stale -> if (stale) job.cancel() }
         }
         if (!s.animated) return
         prefetch = viewModelScope.launch {

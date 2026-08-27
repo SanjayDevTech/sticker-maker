@@ -50,6 +50,8 @@ import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.MotionImage
+import com.example.stickermaker.ui.screens.editor.GifPlayer
+import androidx.compose.runtime.mutableIntStateOf
 import com.example.stickermaker.editor.MotionPlan
 import com.example.stickermaker.editor.StickerExport
 import com.example.stickermaker.editor.StickerMotion
@@ -175,7 +177,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
         ) {
             Text("Save", style = MaterialTheme.typography.displayMedium)
-            Previews(state.loading, state.previews, state.plans, copying, onCopy = ::copy)
+            Previews(state.loading, state.previews, state.plans, state.gifs, copying, onCopy = ::copy)
             Text(
                 if (state.count > 1) {
                     "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed."
@@ -186,35 +188,44 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 color = colors.inkMuted,
             )
 
-            SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))
-            SegmentedPicker(
-                options = listOf(false, true),
-                selected = state.outline,
-                onSelect = vm::setOutline,
-                label = { if (it) "White outline" else "No outline" },
-                modifier = Modifier.padding(end = Dimens.ShadowS),
-            )
-            Text(
-                "WhatsApp's own maker forces a white border. Here it's your call.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.inkMuted,
-            )
+            // Outline and motion are for cut-outs; GIFs play as they are.
+            if (state.hasStills) {
+                val hasGifs = state.gifs.isNotEmpty()
+                SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))
+                SegmentedPicker(
+                    options = listOf(false, true),
+                    selected = state.outline,
+                    onSelect = vm::setOutline,
+                    label = { if (it) "White outline" else "No outline" },
+                    modifier = Modifier.padding(end = Dimens.ShadowS),
+                )
+                Text(
+                    if (hasGifs) {
+                        "WhatsApp's own maker forces a white border. Here it's your call (cut-outs only; GIFs stay as they are)."
+                    } else {
+                        "WhatsApp's own maker forces a white border. Here it's your call."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.inkMuted,
+                )
 
-            SectionTitle("Motion", Modifier.padding(top = Dimens.Space8))
-            MotionPicker(
-                sample = state.previews.firstOrNull(),
-                selected = state.motion,
-                onSelect = vm::setMotion,
-            )
-            Text(
-                if (state.animated) {
-                    "Moving stickers go in animated packs: WhatsApp keeps still and moving packs apart."
-                } else {
-                    "Make it move: WhatsApp plays it on a loop."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.inkMuted,
-            )
+                SectionTitle("Motion", Modifier.padding(top = Dimens.Space8))
+                MotionPicker(
+                    sample = state.previews.filterIndexed { i, _ -> i !in state.gifs }.firstOrNull(),
+                    selected = state.motion,
+                    onSelect = vm::setMotion,
+                    stillAllowed = !hasGifs,
+                )
+                Text(
+                    when {
+                        hasGifs -> "GIFs move, so the cut-outs with them move too: WhatsApp keeps still and moving packs apart."
+                        state.animated -> "Moving stickers go in animated packs: WhatsApp keeps still and moving packs apart."
+                        else -> "Make it move: WhatsApp plays it on a loop."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.inkMuted,
+                )
+            }
 
             SectionTitle("Pack", Modifier.padding(top = Dimens.Space8))
             PackOption(
@@ -259,7 +270,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, copying: List<Int>, onCopy: (Int) -> Unit) {
+private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, gifs: Map<Int, GifClip>, copying: List<Int>, onCopy: (Int) -> Unit) {
     val perRow = 3
     if (loading) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -280,12 +291,17 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<
                 onClick = { onCopy(i) },
                 onClickLabel = "Copy sticker ${i + 1}",
             ) {
-                MotionImage(
-                    image,
-                    plan = plans.getOrNull(i),
-                    contentDescription = "Sticker ${i + 1}",
-                    modifier = Modifier.fillMaxSize().checkerboard(6.dp),
-                )
+                val clip = gifs[i]
+                if (clip != null) {
+                    GifPlayer(clip.gif, clip.trim, scrubMs = null, playhead = remember { mutableIntStateOf(0) }, modifier = Modifier.fillMaxSize())
+                } else {
+                    MotionImage(
+                        image,
+                        plan = plans.getOrNull(i),
+                        contentDescription = "Sticker ${i + 1}",
+                        modifier = Modifier.fillMaxSize().checkerboard(6.dp),
+                    )
+                }
                 // Fully qualified: inside FlowRow, the RowScope overload would win and not compile.
                 androidx.compose.animation.AnimatedVisibility(
                     visible = i in copying,
@@ -304,7 +320,7 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<
 
 /** Every motion as a tile, each playing it on [sample] (the first sticker). */
 @Composable
-private fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect: (StickerMotion) -> Unit) {
+private fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect: (StickerMotion) -> Unit, stillAllowed: Boolean) {
     val colors = AppTheme.colors
     // Plans need the sample's pixels: built once per sample, off the main thread.
     val plans by produceState<Map<StickerMotion, MotionPlan?>>(emptyMap(), sample) {
@@ -328,6 +344,7 @@ private fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect
                     borderWidth = if (on) Dimens.BorderThick else Dimens.Border,
                     shadow = if (on) Dimens.ShadowM else Dimens.ShadowS,
                     onClick = { onSelect(motion) },
+                    enabled = stillAllowed || motion != StickerMotion.None,
                     onClickLabel = motion.label,
                 ) {
                     if (sample != null) {

@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.stickermaker.ui.theme.AppTheme
 import com.example.stickermaker.ui.theme.Dimens
+import com.example.stickermaker.ui.theme.Palette
 import com.example.stickermaker.ui.theme.Shapes
 
 /** Padded brutal block holding a column. Clickable when [onClick] is set. */
@@ -64,6 +65,19 @@ fun StickerTag(
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
         )
+    }
+}
+
+/** A tiny "GIF" badge for thumbnails of animated images (a [StickerTag] is too wide there). */
+@Composable
+fun GifTag(modifier: Modifier = Modifier) {
+    BrutalSurface(
+        modifier = modifier.padding(2.dp).graphicsLayer { rotationZ = -8f },
+        shape = Shapes.Pill,
+        color = Palette.Pink,
+        shadow = 1.dp,
+    ) {
+        Text("GIF", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
     }
 }
 

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Log
+import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.MaskHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,8 +37,29 @@ enum class SessionMode {
     Combine,
 }
 
-/** An image picked or shared in, copied into the session folder and ready to edit. */
-data class SessionImage(val id: String, val file: File, val width: Int, val height: Int)
+/**
+ * An image picked or shared in, copied into the session folder and ready to edit. An animated
+ * GIF ([isGif]) is kept as it came: it's trimmed rather than cut out.
+ */
+data class SessionImage(
+    val id: String,
+    val file: File,
+    val width: Int,
+    val height: Int,
+    val isGif: Boolean = false,
+    /** A GIF's full length. */
+    val durationMs: Int = 0,
+)
+
+/** The part of a GIF that becomes the sticker, in ms. */
+data class Trim(val startMs: Int, val endMs: Int) {
+    val lengthMs get() = endMs - startMs
+
+    companion object {
+        /** From the start, as much as WhatsApp allows. */
+        fun default(durationMs: Int) = Trim(0, minOf(durationMs, WhatsAppLimits.ANIMATED_MAX_MS))
+    }
+}
 
 /**
  * The images of the sticker currently being made, from pick/share through arrange and edit
@@ -80,6 +102,25 @@ class StickerSession(context: Context) {
 
     /** The pack these stickers are meant for (started from a pack's "Add stickers"), if any. */
     val targetPackId = MutableStateFlow<String?>(null)
+
+    /** Each GIF's chosen part; missing means [Trim.default]. */
+    private val _trims = MutableStateFlow<Map<String, Trim>>(emptyMap())
+    val trims: StateFlow<Map<String, Trim>> = _trims.asStateFlow()
+
+    fun trim(image: SessionImage): Trim = _trims.value[image.id] ?: Trim.default(image.durationMs)
+
+    fun setTrim(image: SessionImage, trim: Trim) = _trims.update { it + (image.id to trim) }
+
+    /** Parsed GIFs, kept for the session: frames decode on demand and reuse checkpoints. */
+    private val gifs = HashMap<String, Gif>()
+
+    /** The parsed GIF behind [image], or null if it's not one (or can't be read). Call off the main thread. */
+    fun gif(image: SessionImage): Gif? {
+        if (!image.isGif) return null
+        synchronized(gifs) { gifs[image.id]?.let { return it } }
+        val gif = runCatching { Gif.parse(image.file.readBytes()) }.getOrNull() ?: return null
+        return synchronized(gifs) { gifs.getOrPut(image.id) { gif } }
+    }
 
     /** The flattened sticker from the combine canvas, waiting to be saved. */
     var combined: Bitmap? = null
@@ -135,6 +176,8 @@ class StickerSession(context: Context) {
         val old = _images.value
         _images.value = emptyList()
         histories.clear()
+        _trims.value = emptyMap()
+        synchronized(gifs) { gifs.clear() }
         targetPackId.value = null
         combined = null
         mode.value = SessionMode.Separate
@@ -168,6 +211,7 @@ class StickerSession(context: Context) {
     private fun maskFile(image: SessionImage) = File(dir, "${image.id}.mask")
 
     private fun import(uri: Uri): SessionImage {
+        importGif(uri)?.let { return it }
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE // editor needs pixel access
             val w = info.size.width
@@ -182,7 +226,25 @@ class StickerSession(context: Context) {
         return SessionImage(id, file, bitmap.width, bitmap.height).also { bitmap.recycle() }
     }
 
+    /** An animated GIF, copied as is; null for anything else (a one-frame GIF is just an image). */
+    private fun importGif(uri: Uri): SessionImage? {
+        val head = resolver.openInputStream(uri)?.use { it.readNBytes(6) } ?: return null
+        if (!Gif.isGif(head)) return null
+        val bytes = resolver.openInputStream(uri)?.use { it.readNBytes(MAX_GIF_BYTES + 1) } ?: return null
+        if (bytes.size > MAX_GIF_BYTES) throw IllegalArgumentException("GIF over ${MAX_GIF_BYTES / 1024 / 1024} MB")
+        val gif = Gif.parse(bytes) ?: return null
+        if (gif.frameCount < 2) return null
+        dir.mkdirs()
+        val id = UUID.randomUUID().toString().take(12)
+        val file = File(dir, "$id.gif")
+        file.writeBytes(bytes)
+        synchronized(gifs) { gifs[id] = gif }
+        return SessionImage(id, file, gif.width, gif.height, isGif = true, durationMs = gif.durationMs)
+    }
+
     companion object {
+        private const val MAX_GIF_BYTES = 40 * 1024 * 1024
+
         /** Editing resolution. Output is 512 px; the headroom keeps zoomed pixel-erasing precise. */
         const val MAX_SOURCE_PX = 1280
         private const val HISTORY_BYTES_PER_IMAGE = 16 * 1024 * 1024

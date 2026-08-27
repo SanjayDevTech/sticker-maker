@@ -28,6 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -47,6 +50,7 @@ import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.FileImage
+import com.example.stickermaker.ui.components.GifTag
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.SegmentedPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
@@ -73,6 +77,9 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
     val scope = rememberCoroutineScope()
     val colors = AppTheme.colors
     val count = state.images.size
+    // GIFs: the moment a trim edge is being dragged to (the player holds it), and where it plays.
+    var scrubMs by remember { mutableStateOf<Int?>(null) }
+    val playhead = remember { mutableIntStateOf(0) }
 
     Scaffold(
         containerColor = colors.canvas,
@@ -102,13 +109,26 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
                 .padding(start = Dimens.ScreenGutter, end = Dimens.ScreenGutter + Dimens.ShadowM, bottom = Dimens.Space12 + Dimens.ShadowM),
             verticalArrangement = Arrangement.spacedBy(Dimens.Space12),
         ) {
-            Stage(
-                state = state,
-                view = view,
-                vm = vm,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            )
-            ToolPanel(state, vm, view)
+            val gif = state.gif
+            val trim = state.trim
+            if (state.isGif) {
+                BrutalSurface(Modifier.weight(1f).fillMaxWidth(), shape = Shapes.Large, color = Palette.Lavender, shadow = Dimens.ShadowM) {
+                    when {
+                        gif != null && trim != null -> GifPlayer(gif, trim, scrubMs, playhead, Modifier.fillMaxSize().padding(Dimens.Space16))
+                        state.failed -> CantOpen(Modifier.align(Alignment.Center))
+                        else -> SkeletonBlock(Modifier.fillMaxSize().padding(Dimens.Space24), Shapes.Medium)
+                    }
+                }
+                if (gif != null && trim != null) TrimPanel(gif, trim, vm::setTrim, { scrubMs = it }, playhead)
+            } else {
+                Stage(
+                    state = state,
+                    view = view,
+                    vm = vm,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+                ToolPanel(state, vm, view)
+            }
             if (count > 1) Filmstrip(state.images, state.index, vm::select)
             ChunkyButton(
                 text = when {
@@ -127,7 +147,7 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
                 },
                 icon = if (state.isLast) R.drawable.ic_check else R.drawable.ic_arrow_forward,
                 size = ChunkySize.Large,
-                enabled = state.engine != null,
+                enabled = state.ready,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -172,16 +192,19 @@ private fun Stage(state: EditorUiState, view: CanvasView, vm: EditorViewModel, m
                     modifier = Modifier.align(Alignment.BottomCenter).padding(Dimens.Space12),
                 )
             }
-            state.failed -> EmptyState(
-                icon = R.drawable.ic_image,
-                title = "Can't open this one",
-                message = "The image couldn't be read. Go back and remove it.",
-                modifier = Modifier.align(Alignment.Center),
-            )
+            state.failed -> CantOpen(Modifier.align(Alignment.Center))
             else -> SkeletonBlock(Modifier.fillMaxSize().padding(Dimens.Space24), Shapes.Medium)
         }
     }
 }
+
+@Composable
+private fun CantOpen(modifier: Modifier) = EmptyState(
+    icon = R.drawable.ic_image,
+    title = "Can't open this one",
+    message = "The image couldn't be read. Go back and remove it.",
+    modifier = modifier,
+)
 
 /** One tag at the bottom of the canvas: what's happening now, or how to start. */
 private data class Message(val text: String, val color: Color)
@@ -328,6 +351,7 @@ private fun Filmstrip(images: List<SessionImage>, selected: Int, onSelect: (Int)
                         modifier = Modifier.fillMaxSize().checkerboard(6.dp),
                     )
                 }
+                if (image.isGif) GifTag(Modifier.align(Alignment.BottomEnd))
             }
         }
     }
