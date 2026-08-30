@@ -50,8 +50,9 @@ import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.MotionImage
-import com.example.stickermaker.ui.screens.editor.GifPlayer
-import androidx.compose.runtime.mutableIntStateOf
+import com.example.stickermaker.ui.components.MotionPicker
+import com.example.stickermaker.ui.components.ClipPlayer
+import com.example.stickermaker.editor.StickerClip
 import com.example.stickermaker.editor.MotionPlan
 import com.example.stickermaker.editor.StickerExport
 import com.example.stickermaker.editor.StickerMotion
@@ -177,7 +178,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
         ) {
             Text("Save", style = MaterialTheme.typography.displayMedium)
-            Previews(state.loading, state.previews, state.plans, state.gifs, copying, onCopy = ::copy)
+            Previews(state.loading, state.previews, state.plans, state.clips, copying, onCopy = ::copy)
             Text(
                 if (state.count > 1) {
                     "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed."
@@ -190,7 +191,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
             // Outline and motion are for cut-outs; GIFs play as they are.
             if (state.hasStills) {
-                val hasGifs = state.gifs.isNotEmpty()
+                val hasClips = state.clips.isNotEmpty()
                 SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))
                 SegmentedPicker(
                     options = listOf(false, true),
@@ -200,8 +201,8 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                     modifier = Modifier.padding(end = Dimens.ShadowS),
                 )
                 Text(
-                    if (hasGifs) {
-                        "WhatsApp's own maker forces a white border. Here it's your call (cut-outs only; GIFs stay as they are)."
+                    if (hasClips) {
+                        "WhatsApp's own maker forces a white border. Here it's your call (still stickers only; moving ones stay as they are)."
                     } else {
                         "WhatsApp's own maker forces a white border. Here it's your call."
                     },
@@ -211,14 +212,14 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
                 SectionTitle("Motion", Modifier.padding(top = Dimens.Space8))
                 MotionPicker(
-                    sample = state.previews.filterIndexed { i, _ -> i !in state.gifs }.firstOrNull(),
+                    sample = state.previews.filterIndexed { i, _ -> i !in state.clips }.firstOrNull(),
                     selected = state.motion,
                     onSelect = vm::setMotion,
-                    stillAllowed = !hasGifs,
+                    stillAllowed = !hasClips,
                 )
                 Text(
                     when {
-                        hasGifs -> "GIFs move, so the cut-outs with them move too: WhatsApp keeps still and moving packs apart."
+                        hasClips -> "Some of these already move, so the still ones move too: WhatsApp keeps still and moving packs apart."
                         state.animated -> "Moving stickers go in animated packs: WhatsApp keeps still and moving packs apart."
                         else -> "Make it move: WhatsApp plays it on a loop."
                     },
@@ -270,7 +271,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, gifs: Map<Int, GifClip>, copying: List<Int>, onCopy: (Int) -> Unit) {
+private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, clips: Map<Int, StickerClip>, copying: List<Int>, onCopy: (Int) -> Unit) {
     val perRow = 3
     if (loading) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -291,9 +292,9 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<
                 onClick = { onCopy(i) },
                 onClickLabel = "Copy sticker ${i + 1}",
             ) {
-                val clip = gifs[i]
+                val clip = clips[i]
                 if (clip != null) {
-                    GifPlayer(clip.gif, clip.trim, scrubMs = null, playhead = remember { mutableIntStateOf(0) }, modifier = Modifier.fillMaxSize())
+                    ClipPlayer(clip, contentDescription = "Sticker ${i + 1}", modifier = Modifier.fillMaxSize().checkerboard(6.dp))
                 } else {
                     MotionImage(
                         image,
@@ -315,45 +316,6 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<
         }
         // Keep the last row's tiles the same size as the others.
         repeat((perRow - previews.size % perRow) % perRow) { Box(Modifier.weight(1f)) }
-    }
-}
-
-/** Every motion as a tile, each playing it on [sample] (the first sticker). */
-@Composable
-private fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect: (StickerMotion) -> Unit, stillAllowed: Boolean) {
-    val colors = AppTheme.colors
-    // Plans need the sample's pixels: built once per sample, off the main thread.
-    val plans by produceState<Map<StickerMotion, MotionPlan?>>(emptyMap(), sample) {
-        val still = sample?.asAndroidBitmap() ?: return@produceState
-        value = withContext(Dispatchers.Default) { StickerMotion.entries.associateWith { StickerExport.plan(still, it) } }
-    }
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(end = Dimens.ShadowM, bottom = Dimens.ShadowM),
-    ) {
-        StickerMotion.entries.forEach { motion ->
-            val on = motion == selected
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Dimens.Space4)) {
-                BrutalSurface(
-                    modifier = Modifier.size(72.dp),
-                    shape = Shapes.Medium,
-                    color = if (on) Palette.Yellow else colors.surface,
-                    borderWidth = if (on) Dimens.BorderThick else Dimens.Border,
-                    shadow = if (on) Dimens.ShadowM else Dimens.ShadowS,
-                    onClick = { onSelect(motion) },
-                    enabled = stillAllowed || motion != StickerMotion.None,
-                    onClickLabel = motion.label,
-                ) {
-                    if (sample != null) {
-                        MotionImage(sample, plans[motion], contentDescription = null, modifier = Modifier.fillMaxSize().padding(Dimens.Space4))
-                    }
-                }
-                Text(motion.label, style = MaterialTheme.typography.labelLarge)
-            }
-        }
     }
 }
 

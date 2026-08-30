@@ -2,9 +2,6 @@ package com.example.stickermaker.editor
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Matrix
-import android.graphics.Paint
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -13,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.example.stickermaker.data.Trim
 import java.io.File
 import kotlin.math.cos
 import kotlin.math.max
@@ -21,11 +19,13 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * One cut-out in the combine canvas. Its placement is snapshot state in artboard units
- * (0..1 across the square), changed every frame by gestures and read only while drawing.
+ * One layer in the combine canvas: a cut-out, or a GIF ([gif], trimmed to [trim]; [bitmap] is
+ * then its first kept frame, used for size and hit tests). Its placement is snapshot state in
+ * artboard units (0..1 across the square), changed every frame by gestures and read only
+ * while drawing.
  */
 @Stable
-class Layer(val id: String, val number: Int, val bitmap: Bitmap) {
+class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Gif? = null, val trim: Trim? = null) {
     val image: ImageBitmap = bitmap.asImageBitmap()
     val aspect: Float = bitmap.height.toFloat() / bitmap.width
 
@@ -38,6 +38,17 @@ class Layer(val id: String, val number: Int, val bitmap: Bitmap) {
     /** Degrees, clockwise. */
     var rotation by mutableFloatStateOf(0f)
     var flipped by mutableStateOf(false)
+
+    /** How a cut-out moves (GIF layers play instead). */
+    var motion by mutableStateOf(StickerMotion.None)
+
+    /** A GIF layer's frame showing right now in the canvas; set by the canvas's player. */
+    var frame by mutableStateOf<ImageBitmap?>(null)
+
+    val isGif: Boolean get() = gif != null
+
+    /** Frozen for saving. */
+    fun snapshot() = LayerSnapshot(bitmap, centerX, centerY, size, rotation, flipped, if (isGif) StickerMotion.None else motion, gif, trim)
 
     /** Artboard px per layer px, for an artboard [side] px wide. */
     fun scale(side: Float) = size * side / bitmap.width
@@ -69,15 +80,6 @@ class Layer(val id: String, val number: Int, val bitmap: Bitmap) {
         val y = l.y.toInt()
         if (l.x < 0 || l.y < 0 || x >= bitmap.width || y >= bitmap.height) return false
         return boxOnly || (bitmap.getPixel(x, y) ushr 24) > HIT_ALPHA
-    }
-
-    /** The same transform for an Android canvas of [side] px. */
-    fun matrix(side: Float): Matrix = Matrix().apply {
-        val s = scale(side)
-        postTranslate(-bitmap.width / 2f, -bitmap.height / 2f)
-        postScale(if (flipped) -s else s, s)
-        postRotate(rotation)
-        postTranslate(centerX * side, centerY * side)
     }
 
     companion object {
@@ -127,31 +129,5 @@ object Compositor {
         if (scale >= 1f) return trimmed
         return Bitmap.createScaledBitmap(trimmed, max(1, (cw * scale).roundToInt()), max(1, (ch * scale).roundToInt()), true)
             .also { trimmed.recycle() }
-    }
-
-    /** Draws [layers] (bottom first) into a transparent [STICKER_PX] square. */
-    fun flatten(layers: List<Layer>): Bitmap {
-        val out = Bitmap.createBitmap(STICKER_PX, STICKER_PX, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-        val side = STICKER_PX.toFloat()
-        for (layer in layers) {
-            // Big shrinks look jagged with bilinear alone: pre-shrink (in halves) to about the drawn size.
-            val drawnWidth = layer.size * side
-            val bitmap = if (drawnWidth < layer.bitmap.width / 2f) {
-                StickerExport.smoothScale(
-                    layer.bitmap,
-                    max(1, drawnWidth.roundToInt()),
-                    max(1, (drawnWidth * layer.aspect).roundToInt()),
-                )
-            } else {
-                layer.bitmap
-            }
-            val m = layer.matrix(side)
-            if (bitmap !== layer.bitmap) m.preScale(layer.bitmap.width.toFloat() / bitmap.width, layer.bitmap.height.toFloat() / bitmap.height)
-            canvas.drawBitmap(bitmap, m, paint)
-            if (bitmap !== layer.bitmap) bitmap.recycle()
-        }
-        return out
     }
 }

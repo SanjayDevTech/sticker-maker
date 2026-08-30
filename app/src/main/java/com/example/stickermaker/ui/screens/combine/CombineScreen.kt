@@ -32,11 +32,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.stickermaker.R
 import com.example.stickermaker.appViewModel
 import com.example.stickermaker.editor.Layer
+import com.example.stickermaker.editor.StickerExport
+import com.example.stickermaker.editor.StickerMotion
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.stickermaker.ui.components.BrutalSurface
 import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
+import com.example.stickermaker.ui.components.GifTag
 import com.example.stickermaker.ui.components.IconTile
+import com.example.stickermaker.ui.components.MotionPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
@@ -58,6 +67,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
     val toasts = rememberToastState()
     val scope = rememberCoroutineScope()
     val colors = AppTheme.colors
+    val playback = rememberPlayback(state.layers)
 
     LaunchedEffect(state.empty) {
         val empty = state.empty
@@ -115,6 +125,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                         )
                         else -> CombineCanvas(
                             layers = state.layers,
+                            playback = playback,
                             selected = state.selected,
                             onSelect = vm::select,
                             onGestureStart = vm::beginGesture,
@@ -124,7 +135,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                     }
                 }
                 Text(
-                    "Tap a layer to pick it. Drag to move; pinch or pull the yellow corner to size and turn.",
+                    "Tap a layer to pick it. Drag to move; pinch or pull the yellow corner to size and turn. Cut-outs can move too.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.inkMuted,
                 )
@@ -141,11 +152,12 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                             }
                         },
                     )
+                    LayerMotion(state.selected, vm::setMotion)
                 }
             }
             ChunkyButton(
                 text = "Save sticker",
-                onClick = { vm.flatten(onSave) },
+                onClick = { vm.finish(onSave) },
                 icon = R.drawable.ic_check,
                 size = ChunkySize.Large,
                 enabled = state.layers.isNotEmpty(),
@@ -192,6 +204,28 @@ private fun LayerStrip(state: CombineUiState, vm: CombineViewModel, onDelete: (L
     }
 }
 
+/** How the picked layer moves: a motion picker for a cut-out; a GIF just plays. */
+@Composable
+private fun LayerMotion(layer: Layer?, onSelect: (StickerMotion) -> Unit) {
+    if (layer == null) return
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
+        Text("Motion · layer ${layer.number}", style = MaterialTheme.typography.titleLarge)
+        if (layer.isGif) {
+            Text(
+                "A GIF plays its trimmed part. Shorter loops repeat to fill the longest GIF.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = AppTheme.colors.inkMuted,
+            )
+        } else {
+            // The picker previews motions on a sticker-shaped square of this layer.
+            val sample by produceState<ImageBitmap?>(null, layer) {
+                value = withContext(Dispatchers.Default) { StickerExport.fit(layer.bitmap).asImageBitmap() }
+            }
+            MotionPicker(sample = sample, selected = layer.motion, onSelect = onSelect, stillAllowed = true)
+        }
+    }
+}
+
 @Composable
 private fun LayerThumb(layer: Layer, selected: Boolean, onClick: () -> Unit, onDelete: (() -> Unit)?, modifier: Modifier) {
     // Extra room on the top-end for the delete tile, which overhangs the thumbnail.
@@ -213,6 +247,7 @@ private fun LayerThumb(layer: Layer, selected: Boolean, onClick: () -> Unit, onD
             )
         }
         StickerTag("${layer.number}", Palette.Lavender, rotation = -6f, modifier = Modifier.align(Alignment.TopStart).padding(top = 8.dp))
+        if (layer.isGif) GifTag(Modifier.align(Alignment.BottomEnd).padding(end = Dimens.ShadowS + 4.dp, bottom = 4.dp))
         if (onDelete != null) {
             IconTile(
                 R.drawable.ic_close,

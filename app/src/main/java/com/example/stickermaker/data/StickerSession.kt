@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Log
+import com.example.stickermaker.editor.Composition
 import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.MaskHistory
 import kotlinx.coroutines.CoroutineScope
@@ -122,8 +123,8 @@ class StickerSession(context: Context) {
         return synchronized(gifs) { gifs.getOrPut(image.id) { gif } }
     }
 
-    /** The flattened sticker from the combine canvas, waiting to be saved. */
-    var combined: Bitmap? = null
+    /** The combine canvas's layers (still or moving), waiting to be saved. */
+    var combined: Composition? = null
 
     /** Set when a share arrives from another app; AppNavigation opens the create flow and clears it. */
     val openRequested = MutableStateFlow(false)

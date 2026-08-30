@@ -4,7 +4,10 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.stickermaker.data.StickerSession
+import android.graphics.Bitmap
+import com.example.stickermaker.editor.Composition
 import com.example.stickermaker.editor.Compositor
+import com.example.stickermaker.editor.StickerMotion
 import com.example.stickermaker.editor.Layer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -39,7 +42,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
     /** Every layer ever loaded, deleted ones too, so undo can bring them back. */
     private val all = mutableMapOf<String, Layer>()
 
-    private data class Placement(val x: Float, val y: Float, val size: Float, val rotation: Float, val flipped: Boolean)
+    private data class Placement(val x: Float, val y: Float, val size: Float, val rotation: Float, val flipped: Boolean, val motion: StickerMotion)
 
     /** The whole arrangement: stack order (bottom first) and where each layer sits. */
     private data class Snapshot(val order: List<String>, val placements: Map<String, Placement>)
@@ -51,18 +54,26 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
     init {
         viewModelScope.launch {
             val images = session.images.value
-            val cutouts = images.mapIndexed { i, image ->
+            val loaded = images.mapIndexed { i, image ->
                 async {
-                    val mask = session.readMask(image)
-                    val bitmap = withContext(Dispatchers.Default) {
-                        runCatching { Compositor.cutout(image.file, mask) }
-                            .onFailure { Log.w(TAG, "Couldn't cut ${image.id}", it) }
-                            .getOrNull()
+                    val mask = if (image.isGif) null else session.readMask(image)
+                    val layer = withContext(Dispatchers.Default) {
+                        runCatching {
+                            if (image.isGif) {
+                                // A GIF layer is the whole frame, from its first kept moment.
+                                val gif = session.gif(image) ?: return@runCatching null
+                                val trim = session.trim(image)
+                                val first = Bitmap.createBitmap(gif.frame(gif.frameAt(trim.startMs)), gif.width, gif.height, Bitmap.Config.ARGB_8888)
+                                Layer(image.id, i + 1, first, gif, trim)
+                            } else {
+                                Compositor.cutout(image.file, mask)?.let { Layer(image.id, i + 1, it) }
+                            }
+                        }.onFailure { Log.w(TAG, "Couldn't open ${image.id}", it) }.getOrNull()
                     }
-                    Triple(image.id, i + 1, bitmap)
+                    (i + 1) to layer
                 }
             }.awaitAll()
-            val layers = cutouts.mapNotNull { (id, number, bitmap) -> bitmap?.let { Layer(id, number, it) } }
+            val layers = loaded.mapNotNull { it.second }
             arrange(layers)
             layers.forEach { all[it.id] = it }
             _state.update {
@@ -70,7 +81,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                     loading = false,
                     layers = layers,
                     selectedId = layers.lastOrNull()?.id,
-                    empty = cutouts.filter { it.third == null }.map { it.second },
+                    empty = loaded.filter { it.second == null }.map { it.first },
                 )
             }
         }
@@ -96,7 +107,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         val layers = _state.value.layers
         return Snapshot(
             order = layers.map { it.id },
-            placements = layers.associate { it.id to Placement(it.centerX, it.centerY, it.size, it.rotation, it.flipped) },
+            placements = layers.associate { it.id to Placement(it.centerX, it.centerY, it.size, it.rotation, it.flipped, it.motion) },
         )
     }
 
@@ -109,6 +120,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                 layer.size = p.size
                 layer.rotation = p.rotation
                 layer.flipped = p.flipped
+                layer.motion = p.motion
             }
         }
         _state.update { s ->
@@ -172,6 +184,15 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         commit(before)
     }
 
+    /** Sets how the selected cut-out moves (GIF layers play instead). */
+    fun setMotion(motion: StickerMotion) {
+        val layer = _state.value.selected?.takeIf { !it.isGif } ?: return
+        if (layer.motion == motion) return
+        val before = snapshot()
+        layer.motion = motion
+        commit(before)
+    }
+
     /** Removes a layer (never the last one). Returns its stack index for the toast's Undo. */
     fun delete(id: String): Int {
         val before = snapshot()
@@ -201,13 +222,10 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         commit(before)
     }
 
-    /** Flattens to the 512 sticker and hands it to the session for the Save screen. */
-    fun flatten(then: () -> Unit) {
-        val layers = _state.value.layers
-        viewModelScope.launch {
-            session.combined = withContext(Dispatchers.Default) { Compositor.flatten(layers) }
-            then()
-        }
+    /** Freezes the layers, as they are now, for the Save screen (which draws or animates them). */
+    fun finish(then: () -> Unit) {
+        session.combined = Composition(_state.value.layers.map(Layer::snapshot))
+        then()
     }
 
     private companion object {

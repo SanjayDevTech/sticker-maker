@@ -1,5 +1,9 @@
 package com.example.stickermaker.ui.screens.combine
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -8,6 +12,9 @@ import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,17 +26,24 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.example.stickermaker.editor.Choreography
+import com.example.stickermaker.editor.Composition
+import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.Layer
+import com.example.stickermaker.editor.StickerMotion
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import com.example.stickermaker.ui.components.rememberCheckerBrush
 import com.example.stickermaker.ui.theme.AppTheme
 import com.example.stickermaker.ui.theme.Dimens
@@ -54,6 +68,7 @@ class Guides {
 @Composable
 fun CombineCanvas(
     layers: List<Layer>,
+    playback: Playback,
     selected: Layer?,
     onSelect: (String?) -> Unit,
     onGestureStart: () -> Unit,
@@ -157,22 +172,26 @@ fun CombineCanvas(
                 val outline = Dimens.Border.toPx()
                 val dash = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 6.dp.toPx()))
                 val handle = HANDLE_RADIUS.toPx()
+                val matrix = Matrix()
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
                 onDrawBehind {
                     drawRect(checker, Offset.Zero, Size(side, side))
-                    for (layer in currentLayers) {
-                        val s = layer.scale(side)
-                        translate(layer.centerX * side, layer.centerY * side) {
-                            rotate(layer.rotation, pivot = Offset.Zero) {
-                                scale(if (layer.flipped) -s else s, s, pivot = Offset.Zero) {
-                                    translate(-layer.bitmap.width / 2f, -layer.bitmap.height / 2f) {
-                                        drawImage(
-                                            layer.image,
-                                            dstSize = IntSize(layer.bitmap.width, layer.bitmap.height),
-                                            filterQuality = FilterQuality.Medium,
-                                        )
-                                    }
-                                }
+                    // The same maths as the saved sticker: placement, then the layer's motion at
+                    // this moment; a GIF layer shows its current frame.
+                    val t = playback.timeMs
+                    val choreography = playback.choreography
+                    drawIntoCanvas { canvas ->
+                        for (layer in currentLayers) {
+                            val w = layer.bitmap.width
+                            val h = layer.bitmap.height
+                            Composition.placement(w, h, layer.centerX, layer.centerY, layer.size, layer.rotation, layer.flipped, side, matrix)
+                            val motion = layer.motion
+                            if (!layer.isGif && motion != StickerMotion.None) {
+                                val local = choreography.localMs(motion.periodMs, t) / motion.periodMs
+                                Composition.applyMotion(motion.pose(local), w, h, side, matrix)
                             }
+                            val bitmap = if (layer.isGif) layer.frame?.asAndroidBitmap() ?: layer.bitmap else layer.bitmap
+                            canvas.nativeCanvas.drawBitmap(bitmap, matrix, paint)
                         }
                     }
                     if (guides.vertical) drawLine(Palette.Pink, Offset(side / 2, 0f), Offset(side / 2, side), outline)
@@ -198,6 +217,65 @@ fun CombineCanvas(
                 }
             },
     )
+}
+
+/**
+ * The combine canvas's clock: plays the layers' loops together, the way the saved sticker
+ * will ([Choreography]), stepping on the same 40 ms frames. [timeMs] and the GIF layers'
+ * frames are read only while drawing.
+ */
+@Stable
+class Playback {
+    var timeMs by mutableIntStateOf(0)
+    var choreography by mutableStateOf(Choreography(emptyList(), emptyList()))
+}
+
+/** Runs [Playback] for [layers]: restarts when a GIF or motion changes the timing. */
+@Composable
+fun rememberPlayback(layers: List<Layer>): Playback {
+    val playback = remember { Playback() }
+    val choreography by remember(layers) {
+        derivedStateOf {
+            Choreography(
+                gifLengthsMs = layers.mapNotNull { it.trim?.lengthMs },
+                motionPeriodsMs = layers.filter { !it.isGif && it.motion != StickerMotion.None }.map { it.motion.periodMs },
+            )
+        }
+    }
+    LaunchedEffect(layers, choreography) {
+        playback.choreography = choreography
+        playback.timeMs = 0
+        if (!choreography.animated) return@LaunchedEffect
+        withContext(Dispatchers.Default) {
+            // Per GIF layer: a cursor playing forward and three buffers (one shown, one maybe
+            // still being drawn, one filling).
+            val gifs = layers.filter { it.isGif }
+            val cursors = arrayOfNulls<Gif.Cursor>(gifs.size)
+            val buffers = gifs.map { l -> List(3) { Bitmap.createBitmap(l.bitmap.width, l.bitmap.height, Bitmap.Config.ARGB_8888) } }
+            val images = buffers.map { list -> list.map(Bitmap::asImageBitmap) }
+            val slots = IntArray(gifs.size)
+            val start = SystemClock.uptimeMillis()
+            while (isActive) {
+                val elapsed = SystemClock.uptimeMillis() - start
+                val t = ((elapsed / StickerMotion.FRAME_MS) * StickerMotion.FRAME_MS % choreography.durationMs).toInt()
+                gifs.forEachIndexed { i, layer ->
+                    val gif = requireNotNull(layer.gif)
+                    val trim = requireNotNull(layer.trim)
+                    val index = gif.frameAt(trim.startMs + choreography.localMs(trim.lengthMs, t).toInt())
+                    val c = cursors[i]
+                    if (c != null && c.index == index && layer.frame != null) return@forEachIndexed
+                    val cursor = c?.takeIf { it.index <= index } ?: gif.Cursor(index).also { cursors[i] = it }
+                    while (cursor.index < index) cursor.advance()
+                    buffers[i][slots[i]].setPixels(cursor.canvas, 0, gif.width, 0, 0, gif.width, gif.height)
+                    layer.frame = images[i][slots[i]]
+                    slots[i] = (slots[i] + 1) % 3
+                }
+                playback.timeMs = t
+                delay(StickerMotion.FRAME_MS - (SystemClock.uptimeMillis() - start - elapsed))
+            }
+        }
+    }
+    return playback
 }
 
 /** The bottom-right corner of [layer], where its scale/rotate handle sits. */

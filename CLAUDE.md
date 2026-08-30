@@ -50,6 +50,11 @@ coordinates.
   - **GIFs** (`editor/Gif`): our own decoder, since Android never hands out single GIF frames.
     Trimmed to ≤ 10 s, at most 25 fps, fitted into the square; too heavy for 500 KB at quality
     50 → drop every third frame and re-estimate. A 10 s 480×270 GIF takes ~5–6 s on the Pixel 9.
+  - **Clips** (`editor/StickerClip`): anything already moving (a GIF's trim, a combined
+    sticker) is a `StickerClip` of frames at 512; Save plays (`ClipPlayer`) and encodes them
+    the same way. A `Composition` is the combine canvas frozen: the longest GIF sets the length
+    (else the longest motion), and shorter loops stretch to repeat a whole number of times
+    (`Choreography`). The canvas preview draws with the same placement/motion maths.
 
 ## Architecture: keep it simple
 

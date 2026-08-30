@@ -94,33 +94,14 @@ object StickerExport {
     }
 
     /**
-     * [gif] between [startMs] and [endMs] as an animated sticker: each frame fitted into the
-     * 512 square (transparent around it), at most 25 fps. When even fair quality won't fit in
-     * 500 KB, every other frame goes (timing kept) rather than the picture turning to mush.
+     * An animated [clip] (a GIF's trimmed part, a combined sticker) as a WhatsApp sticker.
+     * GIFs may drop frames to fit (timing kept) rather than turn to mush; see [encodeFrames].
      */
-    suspend fun encodeGif(gif: Gif, startMs: Int, endMs: Int): ByteArray? {
+    suspend fun encodeClip(clip: StickerClip): ByteArray? {
         val side = WhatsAppLimits.STICKER_PX
-        val fitter = GifFitter(gif, side)
-        fun frames(timeline: Timeline): FrameSet {
-            // Frames build on each other, and passes ask for them in order: play forward with one
-            // cursor (one decode per frame) instead of replaying from a checkpoint each time.
-            var cursor: Gif.Cursor? = null
-            val render = { k: Int ->
-                val index = timeline.frames[k]
-                val c = cursor?.takeIf { it.index <= index } ?: gif.Cursor(index).also { cursor = it }
-                while (c.index < index) c.advance()
-                fitter.fit(c.canvas)
-            }
-            // Never below two frames: WhatsApp wants an animated sticker to animate.
-            return FrameSet(timeline.durations, render) { timeline.thinned().takeIf { it.size in 2 until timeline.size }?.let(::frames) }
-        }
-        val timeline = Timeline.of(gif.startMs, gif.durationMs, startMs, endMs, StickerMotion.FRAME_MS)
-        if (timeline.size == 0) return null
-        return try {
-            encodeFrames(side, frames(timeline))
-        } finally {
-            fitter.recycle()
-        }
+        val frames = clip.frames(side)
+        if (frames.size == 0) return null
+        return encodeFrames(side, frames)
     }
 
     /** GIF frame [index] scaled to fit a transparent [side] square (up or down), as ARGB. */
@@ -131,7 +112,7 @@ object StickerExport {
      * Fits GIF frames into a transparent square, reusing its bitmaps from frame to frame (one
      * caller at a time). Big shrinks halve first, like [smoothScale], so edges stay smooth.
      */
-    private class GifFitter(private val gif: Gif, private val side: Int) {
+    class GifFitter(private val gif: Gif, private val side: Int) {
         private val source = Bitmap.createBitmap(gif.width, gif.height, Bitmap.Config.ARGB_8888)
         private val out = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         private val canvas = Canvas(out)
