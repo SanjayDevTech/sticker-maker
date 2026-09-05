@@ -1,7 +1,6 @@
 package com.example.stickermaker.keyboard
 
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,17 +63,16 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
             var selectedId by remember { mutableStateOf<String?>(null) }
             val selected = list.firstOrNull { it.id == selectedId } ?: list.firstOrNull()
 
-            // A fixed height: the keyboard window never resizes (that's what made dragging it
-            // sluggish), and the grid scrolls inside it.
-            val height = with(LocalDensity.current) {
-                (LocalContext.current.resources.displayMetrics.heightPixels * HEIGHT_FRACTION).toDp()
-            }
+            // A typing keyboard's height (fixed: resizing the window made dragging it sluggish),
+            // with the grid scrolling inside. At most half the screen, for landscape.
+            val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+            val height = minOf(KEYBOARD_HEIGHT, screenHeight * MAX_SCREEN_FRACTION)
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .height(height)
                     .background(colors.canvas)
-                    .navigationBarsPadding(),
+                    .navigationBarsPadding()
+                    .height(height),
             ) {
                 Row(
                     modifier = Modifier.padding(start = Dimens.Space12, end = Dimens.Space12, top = Dimens.Space8),
@@ -160,4 +158,9 @@ fun StickerKeyboard(container: AppContainer, onSticker: (File) -> Unit, onBackTo
     }
 }
 
-private const val HEIGHT_FRACTION = 0.45f
+/**
+ * The height of a regular keyboard above the navigation bar: measured from FUTO on the Pixel 9
+ * (842 px with the gesture bar at 356 dpi), in line with Gboard's default.
+ */
+private val KEYBOARD_HEIGHT = 355.dp
+private const val MAX_SCREEN_FRACTION = 0.5f
