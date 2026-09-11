@@ -7,16 +7,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.stickermaker.data.Trim
 import java.io.File
-import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /**
  * One layer in the combine canvas: a cut-out, or a GIF ([gif], trimmed to [trim]; [bitmap] is
@@ -50,35 +47,11 @@ class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Gif? =
     /** Frozen for saving. */
     fun snapshot() = LayerSnapshot(bitmap, centerX, centerY, size, rotation, flipped, if (isGif) StickerMotion.None else motion, gif, trim)
 
-    /** Artboard px per layer px, for an artboard [side] px wide. */
-    fun scale(side: Float) = size * side / bitmap.width
-
-    /** Maps an artboard point (px, artboard [side]) into layer pixels. */
-    fun toLayer(p: Offset, side: Float): Offset {
-        val s = scale(side)
-        val dx = p.x - centerX * side
-        val dy = p.y - centerY * side
-        val r = Math.toRadians(-rotation.toDouble())
-        val x = (dx * cos(r) - dy * sin(r)).toFloat() / s
-        val y = (dx * sin(r) + dy * cos(r)).toFloat() / s
-        return Offset((if (flipped) -x else x) + bitmap.width / 2f, y + bitmap.height / 2f)
-    }
-
-    /** Maps a layer-local offset from its centre (artboard px) to the artboard. */
-    fun fromCenter(local: Offset, side: Float): Offset {
-        val r = Math.toRadians(rotation.toDouble())
-        return Offset(
-            centerX * side + (local.x * cos(r) - local.y * sin(r)).toFloat(),
-            centerY * side + (local.x * sin(r) + local.y * cos(r)).toFloat(),
-        )
-    }
-
-    /** True if [p] lands on a visible pixel (or anywhere in the box when [boxOnly]). */
-    fun hit(p: Offset, side: Float, boxOnly: Boolean = false): Boolean {
-        val l = toLayer(p, side)
-        val x = l.x.toInt()
-        val y = l.y.toInt()
-        if (l.x < 0 || l.y < 0 || x >= bitmap.width || y >= bitmap.height) return false
+    /** True if layer pixel ([lx], [ly]) is visible (or just inside the layer, when [boxOnly]). */
+    fun hitsPixel(lx: Float, ly: Float, boxOnly: Boolean = false): Boolean {
+        val x = lx.toInt()
+        val y = ly.toInt()
+        if (lx < 0 || ly < 0 || x >= bitmap.width || y >= bitmap.height) return false
         return boxOnly || (bitmap.getPixel(x, y) ushr 24) > HIT_ALPHA
     }
 

@@ -94,14 +94,18 @@ fun CombineCanvas(
                     val down = awaitFirstDown()
                     val p0 = down.position
                     var target = currentSelected
-                    val onHandle = target != null && (p0 - handleOf(target, side)).getDistance() <= handleRadius
+                    // The handle stays at the layer's resting place, so it's easy to grab.
+                    val onHandle = target != null && (p0 - playback.handleOf(target, side)).getDistance() <= handleRadius
                     if (!onHandle) {
                         // Topmost visible pixel wins; failing that, the selected layer's box.
-                        target = currentLayers.lastOrNull { it.hit(p0, side) }
-                            ?: currentSelected?.takeIf { it.hit(p0, side, boxOnly = true) }
+                        // A moving layer can be picked where it's drawn now or where it rests.
+                        target = currentLayers.lastOrNull { playback.hits(it, p0, side) || playback.hits(it, p0, side, moving = false) }
+                            ?: currentSelected?.takeIf { playback.hits(it, p0, side, boxOnly = true, moving = false) }
                         if (target != null && target !== currentSelected) select(target.id)
                     }
                     down.consume()
+                    // A held layer stops moving until it's let go: no chasing a spinning target.
+                    playback.held = target?.id
                     if (target != null) gestureStart()
 
                     // Raw values while the gesture runs; snapping applies to what's shown.
@@ -162,6 +166,7 @@ fun CombineCanvas(
                     }
                     guides.vertical = false
                     guides.horizontal = false
+                    playback.held = null
                     if (target != null) gestureEnd()
                     // A tap on empty board clears the selection.
                     if (target == null && !pinching) select(null)
@@ -178,18 +183,9 @@ fun CombineCanvas(
                     drawRect(checker, Offset.Zero, Size(side, side))
                     // The same maths as the saved sticker: placement, then the layer's motion at
                     // this moment; a GIF layer shows its current frame.
-                    val t = playback.timeMs
-                    val choreography = playback.choreography
                     drawIntoCanvas { canvas ->
                         for (layer in currentLayers) {
-                            val w = layer.bitmap.width
-                            val h = layer.bitmap.height
-                            Composition.placement(w, h, layer.centerX, layer.centerY, layer.size, layer.rotation, layer.flipped, side, matrix)
-                            val motion = layer.motion
-                            if (!layer.isGif && motion != StickerMotion.None) {
-                                val local = choreography.localMs(motion.periodMs, t) / motion.periodMs
-                                Composition.applyMotion(motion.pose(local), w, h, side, matrix)
-                            }
+                            playback.matrixOf(layer, side, matrix)
                             val bitmap = if (layer.isGif) layer.frame?.asAndroidBitmap() ?: layer.bitmap else layer.bitmap
                             canvas.nativeCanvas.drawBitmap(bitmap, matrix, paint)
                         }
@@ -198,10 +194,10 @@ fun CombineCanvas(
                     if (guides.horizontal) drawLine(Palette.Pink, Offset(0f, side / 2), Offset(side, side / 2), outline)
 
                     currentSelected?.let { layer ->
-                        val hw = layer.size * side / 2
-                        val hh = hw * layer.aspect
-                        val corners = listOf(Offset(-hw, -hh), Offset(hw, -hh), Offset(hw, hh), Offset(-hw, hh))
-                            .map { layer.fromCenter(it, side) }
+                        // The box marks where the layer rests; its motion plays inside it.
+                        val w = layer.bitmap.width.toFloat()
+                        val h = layer.bitmap.height.toFloat()
+                        val corners = listOf(0f to 0f, w to 0f, w to h, 0f to h).map { (x, y) -> playback.map(layer, side, x, y, moving = false) }
                         val box = Path().apply {
                             moveTo(corners[0].x, corners[0].y)
                             corners.drop(1).forEach { lineTo(it.x, it.y) }
@@ -209,10 +205,10 @@ fun CombineCanvas(
                         }
                         drawPath(box, Color.White, style = Stroke(outline * 2.5f))
                         drawPath(box, colors.ink, style = Stroke(outline, pathEffect = dash))
-                        val h = handleOf(layer, side)
-                        drawCircle(colors.ink, handle + outline, h + Offset(outline, outline))
-                        drawCircle(Palette.Yellow, handle, h)
-                        drawCircle(colors.ink, handle, h, style = Stroke(outline))
+                        val at = playback.handleOf(layer, side)
+                        drawCircle(colors.ink, handle + outline, at + Offset(outline, outline))
+                        drawCircle(Palette.Yellow, handle, at)
+                        drawCircle(colors.ink, handle, at, style = Stroke(outline))
                     }
                 }
             },
@@ -228,6 +224,53 @@ fun CombineCanvas(
 class Playback {
     var timeMs by mutableIntStateOf(0)
     var choreography by mutableStateOf(Choreography(emptyList(), emptyList()))
+
+    /** The layer under a finger: drawn at rest until let go. */
+    var held by mutableStateOf<String?>(null)
+
+    private val scratch = Matrix()
+    private val inverse = Matrix()
+    private val point = FloatArray(2)
+
+    /**
+     * Where [layer] is drawn on an artboard [side] px wide: placement, then its motion now
+     * (unless [moving] is false, or it's being held).
+     */
+    fun matrixOf(layer: Layer, side: Float, into: Matrix, moving: Boolean = true): Matrix {
+        val w = layer.bitmap.width
+        val h = layer.bitmap.height
+        Composition.placement(w, h, layer.centerX, layer.centerY, layer.size, layer.rotation, layer.flipped, side, into)
+        val motion = layer.motion
+        if (moving && layer.id != held && !layer.isGif && motion != StickerMotion.None) {
+            val local = choreography.localMs(motion.periodMs, timeMs) / motion.periodMs
+            Composition.applyMotion(motion.pose(local), w, h, side, into)
+        }
+        return into
+    }
+
+    /** Layer pixel ([x], [y]) on the artboard, as drawn now (or at rest). Main thread. */
+    fun map(layer: Layer, side: Float, x: Float, y: Float, moving: Boolean = true): Offset {
+        point[0] = x
+        point[1] = y
+        matrixOf(layer, side, scratch, moving).mapPoints(point)
+        return Offset(point[0], point[1])
+    }
+
+    /**
+     * The scale/rotate handle: the bottom-right of where the layer rests (its pixels mirror
+     * when flipped). It never moves with the motion: a spinning handle can't be grabbed.
+     */
+    fun handleOf(layer: Layer, side: Float): Offset =
+        map(layer, side, if (layer.flipped) 0f else layer.bitmap.width.toFloat(), layer.bitmap.height.toFloat(), moving = false)
+
+    /** True if [p] lands on a visible pixel of [layer] as drawn now, or at rest (or anywhere in its box). Main thread. */
+    fun hits(layer: Layer, p: Offset, side: Float, boxOnly: Boolean = false, moving: Boolean = true): Boolean {
+        if (!matrixOf(layer, side, scratch, moving).invert(inverse)) return false
+        point[0] = p.x
+        point[1] = p.y
+        inverse.mapPoints(point)
+        return layer.hitsPixel(point[0], point[1], boxOnly)
+    }
 }
 
 /** Runs [Playback] for [layers]: restarts when a GIF or motion changes the timing. */
@@ -276,12 +319,6 @@ fun rememberPlayback(layers: List<Layer>): Playback {
         }
     }
     return playback
-}
-
-/** The bottom-right corner of [layer], where its scale/rotate handle sits. */
-private fun handleOf(layer: Layer, side: Float): Offset {
-    val hw = layer.size * side / 2
-    return layer.fromCenter(Offset(hw, hw * layer.aspect), side)
 }
 
 private fun rotate(v: Offset, degrees: Float): Offset {
