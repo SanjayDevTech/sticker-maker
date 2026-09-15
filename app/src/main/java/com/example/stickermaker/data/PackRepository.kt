@@ -152,11 +152,20 @@ class PackRepository(context: Context) {
     suspend fun addStickers(packId: String?, newName: String?, animated: Boolean, files: List<ByteArray>): String {
         val id = packId ?: createPack(newName?.trim().orEmpty().ifEmpty { "My stickers" }, PUBLISHER, animated).id
         val added = withContext(Dispatchers.IO) {
-            files.map { bytes ->
-                val sticker = Sticker(id = newId(), updatedAt = System.currentTimeMillis())
-                writeAtomically(stickerFile(id, sticker.id), bytes)
-                sticker
+            val written = ArrayList<Sticker>(files.size)
+            try {
+                files.forEach { bytes ->
+                    val sticker = Sticker(id = newId(), updatedAt = System.currentTimeMillis())
+                    writeAtomically(stickerFile(id, sticker.id), bytes)
+                    written += sticker
+                }
+            } catch (e: Exception) {
+                // Not in the index yet, so nothing refers to them: remove them now rather than
+                // leaving them for the next cold start's sweep.
+                written.forEach { stickerFile(id, it.id).delete() }
+                throw e
             }
+            written
         }
         updatePack(id, bumpVersion = true) { pack ->
             pack.copy(stickers = (pack.stickers + added).take(WhatsAppLimits.MAX_STICKERS))
@@ -192,10 +201,15 @@ class PackRepository(context: Context) {
     private fun writeAtomically(file: File, bytes: ByteArray) {
         file.parentFile?.mkdirs()
         val tmp = File(file.parentFile, "${file.name}.tmp")
-        tmp.writeBytes(bytes)
-        if (!tmp.renameTo(file)) {
-            file.delete()
-            tmp.renameTo(file)
+        try {
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                if (!tmp.renameTo(file)) throw java.io.IOException("Couldn't move ${tmp.name} into place")
+            }
+        } finally {
+            // Written and moved, or failed: either way no .tmp is left behind.
+            tmp.delete()
         }
     }
 
