@@ -119,9 +119,12 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
         launch { vm.saved.collect(onSaved) }
         vm.failed.collect { launch { toasts.show("Couldn't save. Try again?") } }
     }
-    LaunchedEffect(state.skipped) {
+    LaunchedEffect(state.skipped, state.unreadable) {
         if (state.skipped > 0) {
-            toasts.show(if (state.skipped == 1) "One image was fully erased, so it's left out" else "${state.skipped} fully erased images are left out")
+            launch { toasts.show(if (state.skipped == 1) "One image was fully erased, so it's left out" else "${state.skipped} fully erased images are left out") }
+        }
+        if (state.unreadable > 0) {
+            launch { toasts.show(if (state.unreadable == 1) "One image couldn't be read, so it's left out" else "${state.unreadable} images couldn't be read and are left out") }
         }
     }
 

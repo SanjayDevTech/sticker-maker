@@ -69,13 +69,22 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
     val colors = AppTheme.colors
     val playback = rememberPlayback(state.layers)
 
-    LaunchedEffect(state.empty) {
+    LaunchedEffect(state.empty, state.unreadable) {
         val empty = state.empty
         if (empty.isNotEmpty()) {
             launch {
                 toasts.show(
                     if (empty.size == 1) "Image ${empty[0]} is fully erased, so it's left out"
                     else "Images ${empty.joinToString()} are fully erased, so they're left out",
+                )
+            }
+        }
+        val unreadable = state.unreadable
+        if (unreadable.isNotEmpty()) {
+            launch {
+                toasts.show(
+                    if (unreadable.size == 1) "Image ${unreadable[0]} couldn't be read, so it's left out"
+                    else "Images ${unreadable.joinToString()} couldn't be read, so they're left out",
                 )
             }
         }
@@ -120,7 +129,11 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                         state.layers.isEmpty() -> EmptyState(
                             icon = R.drawable.ic_image,
                             title = "Nothing to combine",
-                            message = "Every image is fully erased. Go back and restore some.",
+                            message = if (state.unreadable.isNotEmpty()) {
+                                "None of the images could be used: they're fully erased or couldn't be read."
+                            } else {
+                                "Every image is fully erased. Go back and restore some."
+                            },
                             modifier = Modifier.align(Alignment.Center),
                         )
                         else -> CombineCanvas(

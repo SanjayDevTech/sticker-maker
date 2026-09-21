@@ -42,6 +42,8 @@ data class SaveUiState(
     val previews: List<ImageBitmap> = emptyList(),
     /** Images left out because they were fully erased. */
     val skipped: Int = 0,
+    /** Images left out because they couldn't be read (a broken GIF, a deleted file). */
+    val unreadable: Int = 0,
     val outline: Boolean = false,
     /** Applied to every sticker of this batch: a pack is all still or all animated. */
     val motion: StickerMotion = StickerMotion.None,
@@ -105,34 +107,43 @@ class SaveViewModel(
 
     private class Rendered(val still: Bitmap, val clip: StickerClip? = null)
 
+    /** How loading one image went. */
+    private sealed interface Outcome {
+        class Ok(val rendered: Rendered) : Outcome
+        data object Erased : Outcome
+        data object Unreadable : Outcome
+    }
+
     init {
         viewModelScope.launch {
             val combined = session.combined
-            val rendered: List<Rendered?> = if (session.mode.value == SessionMode.Combine && combined != null) {
-                listOf(withContext(Dispatchers.Default) { Rendered(combined.still(), combined.takeIf { it.animated }) })
+            val outcomes: List<Outcome> = if (session.mode.value == SessionMode.Combine && combined != null) {
+                listOf(Outcome.Ok(withContext(Dispatchers.Default) { Rendered(combined.still(), combined.takeIf { it.animated }) }))
             } else {
                 session.images.value.map { image ->
                     async(Dispatchers.Default) {
                         runCatching {
                             if (image.isGif) {
-                                val gif = session.gif(image) ?: return@runCatching null
+                                val gif = session.gif(image) ?: return@runCatching Outcome.Unreadable
                                 val trim = session.trim(image)
                                 val first = StickerExport.fitGifFrame(gif, gif.frameAt(trim.startMs), WhatsAppLimits.STICKER_PX)
                                 val px = WhatsAppLimits.STICKER_PX
-                                Rendered(Bitmap.createBitmap(first, px, px, Bitmap.Config.ARGB_8888), GifStickerClip(gif, trim))
+                                Outcome.Ok(Rendered(Bitmap.createBitmap(first, px, px, Bitmap.Config.ARGB_8888), GifStickerClip(gif, trim)))
                             } else {
-                                Compositor.cutout(image.file, session.readMask(image))?.let { Rendered(StickerExport.fit(it)) }
+                                Compositor.cutout(image.file, session.readMask(image))?.let { Outcome.Ok(Rendered(StickerExport.fit(it))) }
+                                    ?: Outcome.Erased
                             }
-                        }.onFailure { Log.w(TAG, "Couldn't render ${image.id}", it) }.getOrNull()
+                        }.onFailure { Log.w(TAG, "Couldn't render ${image.id}", it) }.getOrDefault(Outcome.Unreadable)
                     }
                 }.awaitAll()
             }
-            val kept = rendered.filterNotNull()
+            val kept = outcomes.filterIsInstance<Outcome.Ok>().map { it.rendered }
             plain = kept.map { it.still }
             clips = kept.withIndex().mapNotNull { (i, r) -> r.clip?.let { i to it } }.toMap()
             local.update { s ->
                 s.copy(
-                    skipped = rendered.count { it == null },
+                    skipped = outcomes.count { it == Outcome.Erased },
+                    unreadable = outcomes.count { it == Outcome.Unreadable },
                     clips = clips,
                     // Stills next to a moving one must move too (all-animated pack): give them a motion.
                     motion = if (clips.isNotEmpty() && s.motion == StickerMotion.None) StickerMotion.Wiggle else s.motion,

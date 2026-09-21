@@ -27,6 +27,8 @@ data class CombineUiState(
     val selectedId: String? = null,
     /** Images left out because everything in them was erased (their numbers). */
     val empty: List<Int> = emptyList(),
+    /** Images left out because they couldn't be read (their numbers). */
+    val unreadable: List<Int> = emptyList(),
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
 ) {
@@ -41,6 +43,9 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
 
     /** Every layer ever loaded, deleted ones too, so undo can bring them back. */
     private val all = mutableMapOf<String, Layer>()
+
+    /** One image as loaded: its layer, or null when fully erased or ([failed]) unreadable. */
+    private class Loaded(val number: Int, val layer: Layer?, val failed: Boolean)
 
     private data class Placement(val x: Float, val y: Float, val size: Float, val rotation: Float, val flipped: Boolean, val motion: StickerMotion)
 
@@ -57,23 +62,24 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
             val loaded = images.mapIndexed { i, image ->
                 async {
                     val mask = if (image.isGif) null else session.readMask(image)
+                    var failed = false
                     val layer = withContext(Dispatchers.Default) {
                         runCatching {
                             if (image.isGif) {
                                 // A GIF layer is the whole frame, from its first kept moment.
-                                val gif = session.gif(image) ?: return@runCatching null
+                                val gif = session.gif(image) ?: return@runCatching null.also { failed = true }
                                 val trim = session.trim(image)
                                 val first = Bitmap.createBitmap(gif.frame(gif.frameAt(trim.startMs)), gif.width, gif.height, Bitmap.Config.ARGB_8888)
                                 Layer(image.id, i + 1, first, gif, trim)
                             } else {
                                 Compositor.cutout(image.file, mask)?.let { Layer(image.id, i + 1, it) }
                             }
-                        }.onFailure { Log.w(TAG, "Couldn't open ${image.id}", it) }.getOrNull()
+                        }.onFailure { Log.w(TAG, "Couldn't open ${image.id}", it); failed = true }.getOrNull()
                     }
-                    (i + 1) to layer
+                    Loaded(i + 1, layer, failed)
                 }
             }.awaitAll()
-            val layers = loaded.mapNotNull { it.second }
+            val layers = loaded.mapNotNull { it.layer }
             arrange(layers)
             layers.forEach { all[it.id] = it }
             _state.update {
@@ -81,7 +87,8 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                     loading = false,
                     layers = layers,
                     selectedId = layers.lastOrNull()?.id,
-                    empty = loaded.filter { it.second == null }.map { it.first },
+                    empty = loaded.filter { it.layer == null && !it.failed }.map { it.number },
+                    unreadable = loaded.filter { it.failed }.map { it.number },
                 )
             }
         }
