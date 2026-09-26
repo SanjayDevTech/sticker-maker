@@ -3,6 +3,8 @@ package com.example.stickermaker.ui.screens.combine
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.stickermaker.data.CombineLayout
+import com.example.stickermaker.data.LayerPlacement
 import com.example.stickermaker.data.StickerSession
 import android.graphics.Bitmap
 import com.example.stickermaker.editor.Composition
@@ -47,14 +49,13 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
     /** One image as loaded: its layer, or null when fully erased or ([failed]) unreadable. */
     private class Loaded(val number: Int, val layer: Layer?, val failed: Boolean)
 
-    private data class Placement(val x: Float, val y: Float, val size: Float, val rotation: Float, val flipped: Boolean, val motion: StickerMotion)
+    /** Images added (in Arrange) since the history was recorded: older steps don't know them. */
+    private var newThisVisit: Set<String> = emptySet()
 
-    /** The whole arrangement: stack order (bottom first) and where each layer sits. */
-    private data class Snapshot(val order: List<String>, val placements: Map<String, Placement>)
-
-    private val undoStack = ArrayDeque<Snapshot>()
-    private val redoStack = ArrayDeque<Snapshot>()
-    private var gestureStart: Snapshot? = null
+    // Held by the session, so leaving the screen and coming back keeps them.
+    private val undoStack = session.combineHistory.undo
+    private val redoStack = session.combineHistory.redo
+    private var gestureStart: CombineLayout? = null
 
     init {
         viewModelScope.launch {
@@ -79,9 +80,19 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                     Loaded(i + 1, layer, failed)
                 }
             }.awaitAll()
-            val layers = loaded.mapNotNull { it.layer }
-            arrange(layers)
-            layers.forEach { all[it.id] = it }
+            val fresh = loaded.mapNotNull { it.layer }
+            fresh.forEach { all[it.id] = it }
+            // Back from the editor: put layers where they were. Images added since go on top in
+            // the default spread; removed ones simply drop out.
+            val saved = session.combineLayout
+            val known = saved?.order.orEmpty().mapNotNull { id -> fresh.firstOrNull { it.id == id } }
+            val added = fresh.filterNot { it in known }
+            newThisVisit = added.map { it.id }.toSet()
+            arrange(added)
+            val layers = known + added
+            saved?.let { apply(it.placements, known) }
+            pruneHistory(fresh.map { it.id }.toSet(), snapshot(layers))
+            persist(layers)
             _state.update {
                 CombineUiState(
                     loading = false,
@@ -89,6 +100,8 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                     selectedId = layers.lastOrNull()?.id,
                     empty = loaded.filter { it.layer == null && !it.failed }.map { it.number },
                     unreadable = loaded.filter { it.failed }.map { it.number },
+                    canUndo = undoStack.isNotEmpty(),
+                    canRedo = redoStack.isNotEmpty(),
                 )
             }
         }
@@ -110,18 +123,14 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
 
     // ---- Undo ----------------------------------------------------------------------------
 
-    private fun snapshot(): Snapshot {
-        val layers = _state.value.layers
-        return Snapshot(
-            order = layers.map { it.id },
-            placements = layers.associate { it.id to Placement(it.centerX, it.centerY, it.size, it.rotation, it.flipped, it.motion) },
-        )
-    }
+    private fun snapshot(layers: List<Layer> = _state.value.layers) = CombineLayout(
+        order = layers.map { it.id },
+        placements = layers.associate { it.id to LayerPlacement(it.centerX, it.centerY, it.size, it.rotation, it.flipped, it.motion) },
+    )
 
-    private fun restore(snapshot: Snapshot) {
-        val layers = snapshot.order.mapNotNull { all[it] }
+    private fun apply(placements: Map<String, LayerPlacement>, layers: List<Layer>) {
         layers.forEach { layer ->
-            snapshot.placements[layer.id]?.let { p ->
+            placements[layer.id]?.let { p ->
                 layer.centerX = p.x
                 layer.centerY = p.y
                 layer.size = p.size
@@ -130,13 +139,58 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                 layer.motion = p.motion
             }
         }
+    }
+
+    private fun restore(snapshot: CombineLayout) {
+        // A step from an earlier visit doesn't know images added since: they stay, on top.
+        val layers = snapshot.order.mapNotNull { all[it] } +
+            _state.value.layers.filter { it.id in newThisVisit && it.id !in snapshot.order }
+        apply(snapshot.placements, layers)
         _state.update { s ->
             s.copy(layers = layers, selectedId = s.selectedId?.takeIf { id -> layers.any { it.id == id } })
         }
+        persist()
+    }
+
+    /**
+     * After images were removed in Arrange: strips them from every undo/redo step, then drops
+     * steps that no longer change anything (they only touched a removed image), so each
+     * Undo or Redo visibly does something. [now] is the layout as it opens.
+     */
+    private fun pruneHistory(present: Set<String>, now: CombineLayout) {
+        fun strip(l: CombineLayout) = CombineLayout(l.order.filter { it in present }, l.placements.filterKeys { it in present })
+        // Compare only images every step can know: new ones are absent from older steps.
+        val shared = present - newThisVisit
+        fun key(l: CombineLayout) = CombineLayout(l.order.filter { it in shared }, l.placements.filterKeys { it in shared })
+
+        // Undo goes newest first: a step equal to the state it would return from is dead.
+        val undo = undoStack.map(::strip)
+        undoStack.clear()
+        var after = key(now)
+        for (step in undo.asReversed()) {
+            val k = key(step)
+            if (k != after) undoStack.addFirst(step)
+            after = k
+        }
+        // Redo, next first, likewise against the state before it.
+        val redo = redoStack.map(::strip)
+        redoStack.clear()
+        var before = key(now)
+        for (step in redo.asReversed()) {
+            val k = key(step)
+            if (k != before) redoStack.addFirst(step)
+            before = k
+        }
+    }
+
+    /** Keeps the arrangement in the session, so it survives leaving this screen. */
+    private fun persist(layers: List<Layer> = _state.value.layers) {
+        session.combineLayout = snapshot(layers)
     }
 
     /** Records [before] as an undo step if anything changed since. */
-    private fun commit(before: Snapshot) {
+    private fun commit(before: CombineLayout) {
+        persist()
         if (before == snapshot()) return
         undoStack.addLast(before)
         if (undoStack.size > MAX_UNDO) undoStack.removeFirst()

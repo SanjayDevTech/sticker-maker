@@ -8,6 +8,7 @@ import android.util.Log
 import com.example.stickermaker.editor.Composition
 import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.MaskHistory
+import com.example.stickermaker.editor.StickerMotion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +52,18 @@ data class SessionImage(
     /** A GIF's full length. */
     val durationMs: Int = 0,
 )
+
+/** Where one combine layer sits (artboard units; see editor.Layer) and how it moves. */
+data class LayerPlacement(val x: Float, val y: Float, val size: Float, val rotation: Float, val flipped: Boolean, val motion: StickerMotion)
+
+/** The combine canvas's arrangement: stack order (bottom first) and each layer's placement. */
+data class CombineLayout(val order: List<String>, val placements: Map<String, LayerPlacement>)
+
+/** The combine canvas's undo and redo steps, kept with the layout so they survive leaving it. */
+class CombineHistory {
+    val undo = ArrayDeque<CombineLayout>()
+    val redo = ArrayDeque<CombineLayout>()
+}
 
 /** The part of a GIF that becomes the sticker, in ms. */
 data class Trim(val startMs: Int, val endMs: Int) {
@@ -123,6 +136,16 @@ class StickerSession(context: Context) {
         return synchronized(gifs) { gifs.getOrPut(image.id) { gif } }
     }
 
+    /**
+     * The combine canvas as last arranged, so leaving it (back to the editor, say) and
+     * returning finds the layers where they were. Main thread.
+     */
+    var combineLayout: CombineLayout? = null
+
+    /** The combine canvas's undo history, for the same reason. Main thread. */
+    var combineHistory = CombineHistory()
+        private set
+
     /** The combine canvas's layers (still or moving), waiting to be saved. */
     var combined: Composition? = null
 
@@ -181,6 +204,8 @@ class StickerSession(context: Context) {
         synchronized(gifs) { gifs.clear() }
         targetPackId.value = null
         combined = null
+        combineLayout = null
+        combineHistory = CombineHistory()
         mode.value = SessionMode.Separate
         scope.launch(maskIo) {
             old.forEach { it.file.delete(); maskFile(it).delete() }
