@@ -30,9 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Every motion as a tile, each playing it on [sample] (a still sticker, 512
- * square). [stillAllowed] false greys out Still (when the sticker must move). */
+ * square). [selected] null picks none (stickers that differ). */
 @Composable
-fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect: (StickerMotion) -> Unit, stillAllowed: Boolean) {
+fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion?, onSelect: (StickerMotion) -> Unit) {
     val colors = AppTheme.colors
     // Plans need the sample's pixels: built once per sample, off the main thread.
     val plans by produceState<Map<StickerMotion, MotionPlan?>>(emptyMap(), sample) {
@@ -56,7 +56,6 @@ fun MotionPicker(sample: ImageBitmap?, selected: StickerMotion, onSelect: (Stick
                     borderWidth = if (on) Dimens.BorderThick else Dimens.Border,
                     shadow = if (on) Dimens.ShadowM else Dimens.ShadowS,
                     onClick = { onSelect(motion) },
-                    enabled = stillAllowed || motion != StickerMotion.None,
                     onClickLabel = motion.label,
                 ) {
                     if (sample != null) {

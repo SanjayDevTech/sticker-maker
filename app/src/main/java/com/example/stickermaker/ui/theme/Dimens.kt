@@ -39,6 +39,8 @@ object Dimens {
 
     // Touch targets
     val IconTile = 48.dp
+    /** A smaller tile, for a badge on a small card. */
+    val IconTileSmall = 32.dp
     val ButtonMedium = 54.dp
     val ButtonLarge = 68.dp
     val ButtonHero = 84.dp

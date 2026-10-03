@@ -234,7 +234,7 @@ private fun LayerMotion(layer: Layer?, onSelect: (StickerMotion) -> Unit) {
             val sample by produceState<ImageBitmap?>(null, layer) {
                 value = withContext(Dispatchers.Default) { StickerExport.fit(layer.bitmap).asImageBitmap() }
             }
-            MotionPicker(sample = sample, selected = layer.motion, onSelect = onSelect, stillAllowed = true)
+            MotionPicker(sample = sample, selected = layer.motion, onSelect = onSelect)
         }
     }
 }

@@ -11,6 +11,10 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.example.stickermaker.ui.components.StickerBottomSheet
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,6 +92,9 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // The sticker whose own outline and motion are being picked, in a sheet.
+    var editing by rememberSaveable { mutableStateOf<Int?>(null) }
 
     // Stickers whose copy is taking a while (moving ones still encoding).
     val copying = remember { mutableStateListOf<Int>() }
@@ -181,9 +188,20 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Space16),
         ) {
             Text("Save", style = MaterialTheme.typography.displayMedium)
-            Previews(state.loading, state.previews, state.plans, state.clips, copying, onCopy = ::copy)
+            Previews(
+                state.loading,
+                state.previews,
+                state.plans,
+                state.clips,
+                copying,
+                onCopy = ::copy,
+                // One sticker: the pickers below are its own.
+                onEdit = if (state.count > 1) { i -> editing = i } else null,
+            )
             Text(
-                if (state.count > 1) {
+                if (state.count > 1 && state.hasStills) {
+                    "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed. Its corner button gives it its own outline and motion."
+                } else if (state.count > 1) {
                     "Tap a sticker to copy it, then paste it into a WhatsApp chat. No pack needed."
                 } else {
                     "Copy, then paste into a WhatsApp chat: it arrives as a sticker. No pack needed."
@@ -197,14 +215,16 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 val hasClips = state.clips.isNotEmpty()
                 SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))
                 SegmentedPicker(
-                    options = listOf(false, true),
+                    options = listOf<Boolean?>(false, true),
                     selected = state.outline,
-                    onSelect = vm::setOutline,
-                    label = { if (it) "White outline" else "No outline" },
+                    onSelect = { on -> on?.let(vm::setOutline) },
+                    label = { if (it == true) "White outline" else "No outline" },
                     modifier = Modifier.padding(end = Dimens.ShadowS),
                 )
                 Text(
-                    if (hasClips) {
+                    if (state.outline == null) {
+                        "Some have an outline, some don't. Pick one here to set them all."
+                    } else if (hasClips) {
                         "WhatsApp's own maker forces a white border. Here it's your call (still stickers only; moving ones stay as they are)."
                     } else {
                         "WhatsApp's own maker forces a white border. Here it's your call."
@@ -218,12 +238,11 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                     sample = state.previews.filterIndexed { i, _ -> i !in state.clips }.firstOrNull(),
                     selected = state.motion,
                     onSelect = vm::setMotion,
-                    stillAllowed = !hasClips,
                 )
                 Text(
                     when {
-                        hasClips -> "Some of these already move, so the still ones move too: WhatsApp keeps still and moving packs apart."
-                        state.animated -> "Moving stickers go in animated packs: WhatsApp keeps still and moving packs apart."
+                        state.motion == null -> "Each moves its own way. Pick one here to set them all."
+                        state.animated -> "Moving stickers go in an animated pack; still ones join it holding still."
                         else -> "Make it move: WhatsApp plays it on a loop."
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -258,7 +277,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                     selected = state.targetId == pack.id,
                     title = pack.name,
                     subtitle = when {
-                        pack.animated != state.animated -> if (pack.animated) "Animated pack: only moving stickers" else "Still pack: only still stickers"
+                        !state.accepts(pack) && state.hasRoom(pack) -> "Still pack: only still stickers"
                         !state.hasRoom(pack) -> "No room: a pack holds ${WhatsAppLimits.MAX_STICKERS}"
                         else -> "${pack.stickers.size} of ${WhatsAppLimits.MAX_STICKERS} stickers"
                     },
@@ -270,11 +289,71 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
             }
         }
     }
+
+    editing?.takeIf { it < state.count && it !in state.clips }?.let { index ->
+        StickerSheet(
+            index = index,
+            preview = state.previews[index],
+            plan = state.plans.getOrNull(index),
+            outline = state.outlines[index],
+            motion = state.motions[index],
+            onOutline = { vm.setOutline(index, it) },
+            onMotion = { vm.setMotion(index, it) },
+            onDismiss = { editing = null },
+        )
+    }
+}
+
+/** One sticker's own outline and motion. */
+@Composable
+private fun StickerSheet(
+    index: Int,
+    preview: ImageBitmap,
+    plan: MotionPlan?,
+    outline: Boolean,
+    motion: StickerMotion,
+    onOutline: (Boolean) -> Unit,
+    onMotion: (StickerMotion) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = AppTheme.colors
+    StickerBottomSheet(onDismissRequest = onDismiss, title = "Sticker ${index + 1}") {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            BrutalSurface(Modifier.size(160.dp), shape = Shapes.Medium, shadow = Dimens.ShadowS) {
+                MotionImage(preview, plan, contentDescription = "Sticker ${index + 1}", modifier = Modifier.fillMaxSize().checkerboard(6.dp))
+            }
+        }
+        SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))
+        SegmentedPicker(
+            options = listOf(false, true),
+            selected = outline,
+            onSelect = onOutline,
+            label = { if (it) "White outline" else "No outline" },
+            modifier = Modifier.padding(end = Dimens.ShadowS),
+        )
+        SectionTitle("Motion", Modifier.padding(top = Dimens.Space8))
+        MotionPicker(sample = preview, selected = motion, onSelect = onMotion)
+        Text(
+            "If any sticker moves, they're saved to an animated pack: still ones join it holding still.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.inkMuted,
+            modifier = Modifier.padding(bottom = Dimens.Space16),
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<MotionPlan?>, clips: Map<Int, StickerClip>, copying: List<Int>, onCopy: (Int) -> Unit) {
+private fun Previews(
+    loading: Boolean,
+    previews: List<ImageBitmap>,
+    plans: List<MotionPlan?>,
+    clips: Map<Int, StickerClip>,
+    copying: List<Int>,
+    onCopy: (Int) -> Unit,
+    /** Opens a still's own outline and motion; null hides the button. */
+    onEdit: ((Int) -> Unit)?,
+) {
     val perRow = 3
     if (loading) {
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
@@ -314,6 +393,15 @@ private fun Previews(loading: Boolean, previews: List<ImageBitmap>, plans: List<
                     modifier = Modifier.align(Alignment.Center),
                 ) {
                     StickerTag("Copying…", Palette.Yellow, rotation = -4f)
+                }
+                if (onEdit != null && clip == null) {
+                    IconTile(
+                        R.drawable.ic_tune,
+                        contentDescription = "Outline and motion of sticker ${i + 1}",
+                        onClick = { onEdit(i) },
+                        size = Dimens.IconTileSmall,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(Dimens.Space4),
+                    )
                 }
             }
         }

@@ -39,7 +39,8 @@ import com.example.stickermaker.ui.theme.Shapes
 
 /**
  * Single-select row in one brutal tray. The selected block is a separate outlined slab that
- * slides (with a little overshoot) to the chosen option.
+ * slides (with a little overshoot) to the chosen option. A [selected] value that isn't among
+ * [options] (say, "mixed") lights none.
  */
 @Composable
 fun <T> SegmentedPicker(
@@ -68,10 +69,11 @@ fun <T> SegmentedPicker(
                 .padding(inset),
         ) {
             val segment = maxWidth / options.size
-            val index = options.indexOf(selected).coerceAtLeast(0)
-            val indicatorX by animateDpAsState(segment * index, Motion.spatialBouncy(), label = "indicator")
+            // Not among the options (a mixed choice): no segment is lit.
+            val index = options.indexOf(selected)
+            val indicatorX by animateDpAsState(segment * index.coerceAtLeast(0), Motion.spatialBouncy(), label = "indicator")
 
-            Box(
+            if (index >= 0) Box(
                 modifier = Modifier
                     .offset { IntOffset(indicatorX.roundToPx(), 0) }
                     .width(segment)

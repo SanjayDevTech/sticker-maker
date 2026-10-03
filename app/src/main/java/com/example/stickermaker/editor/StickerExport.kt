@@ -94,6 +94,17 @@ object StickerExport {
     }
 
     /**
+     * [sticker] (a still, 512 square) as an animated WebP that never moves: two identical
+     * frames. An animated pack takes only animated files, so this is how a still sticker
+     * joins one. Null if libwebp isn't available.
+     */
+    suspend fun encodeHeld(sticker: Bitmap): ByteArray? {
+        val side = sticker.width
+        val pixels = IntArray(side * side).also { sticker.getPixels(it, 0, side, 0, 0, side, side) }
+        return encodeFrames(side, FrameSet(IntArray(HELD_FRAMES) { HELD_FRAME_MS }, { pixels }))
+    }
+
+    /**
      * An animated [clip] (a GIF's trimmed part, a combined sticker) as a WhatsApp sticker.
      * GIFs may drop frames to fit (timing kept) rather than turn to mush; see [encodeFrames].
      */
@@ -250,6 +261,10 @@ object StickerExport {
             bitmap.compress(format, quality, out)
             out.toByteArray()
         }
+
+    /** A held-still sticker: two frames (an animated file needs more than one), a second each. */
+    private const val HELD_FRAMES = 2
+    private const val HELD_FRAME_MS = 1000
 
     private const val MIN_QUALITY = 30
 
