@@ -54,7 +54,15 @@ data class SessionImage(
 )
 
 /** Where one combine layer sits (artboard units; see editor.Layer) and how it moves. */
-data class LayerPlacement(val x: Float, val y: Float, val size: Float, val rotation: Float, val flipped: Boolean, val motion: StickerMotion)
+data class LayerPlacement(
+    val x: Float,
+    val y: Float,
+    val size: Float,
+    val rotation: Float,
+    val flipped: Boolean,
+    val motion: StickerMotion,
+    val outline: Boolean = false,
+)
 
 /** The combine canvas's arrangement: stack order (bottom first) and each layer's placement. */
 data class CombineLayout(val order: List<String>, val placements: Map<String, LayerPlacement>)

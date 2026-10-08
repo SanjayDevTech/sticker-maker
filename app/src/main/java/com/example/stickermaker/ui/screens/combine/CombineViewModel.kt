@@ -11,6 +11,8 @@ import com.example.stickermaker.editor.Composition
 import com.example.stickermaker.editor.Compositor
 import com.example.stickermaker.editor.StickerMotion
 import com.example.stickermaker.editor.Layer
+import com.example.stickermaker.editor.OutlinedBitmap
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -125,7 +127,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
 
     private fun snapshot(layers: List<Layer> = _state.value.layers) = CombineLayout(
         order = layers.map { it.id },
-        placements = layers.associate { it.id to LayerPlacement(it.centerX, it.centerY, it.size, it.rotation, it.flipped, it.motion) },
+        placements = layers.associate { it.id to LayerPlacement(it.centerX, it.centerY, it.size, it.rotation, it.flipped, it.motion, it.outline) },
     )
 
     private fun apply(placements: Map<String, LayerPlacement>, layers: List<Layer>) {
@@ -137,8 +139,10 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
                 layer.rotation = p.rotation
                 layer.flipped = p.flipped
                 layer.motion = p.motion
+                layer.outline = p.outline
             }
         }
+        refreshOutlines(layers)
     }
 
     private fun restore(snapshot: CombineLayout) {
@@ -191,6 +195,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
     /** Records [before] as an undo step if anything changed since. */
     private fun commit(before: CombineLayout) {
         persist()
+        refreshOutlines()
         if (before == snapshot()) return
         undoStack.addLast(before)
         if (undoStack.size > MAX_UNDO) undoStack.removeFirst()
@@ -254,6 +259,41 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         commit(before)
     }
 
+    /** Turns the selected cut-out's outline on or off. */
+    fun setOutline(on: Boolean) {
+        val layer = _state.value.selected?.takeIf { !it.isGif } ?: return
+        if (layer.outline == on) return
+        val before = snapshot()
+        layer.outline = on
+        commit(before)
+    }
+
+    /** Every cut-out's outline on or off, as one step. */
+    fun setOutlineAll(on: Boolean) {
+        val before = snapshot()
+        _state.value.layers.filterNot { it.isGif }.forEach { it.outline = on }
+        commit(before)
+    }
+
+    private val outlineJobs = HashMap<String, Job>()
+
+    /**
+     * Makes the outlined copy of every outlined cut-out whose copy is missing or was made for
+     * another size (the band keeps one width on the sticker; a resize changes it in layer
+     * pixels). Until it's ready, the old copy (or the plain cut-out) shows.
+     */
+    private fun refreshOutlines(layers: List<Layer> = _state.value.layers) {
+        layers.forEach { layer ->
+            if (!layer.outline || layer.isGif) return@forEach
+            val thickness = layer.outlineThickness()
+            if (layer.outlined?.thickness == thickness) return@forEach
+            outlineJobs[layer.id]?.cancel()
+            outlineJobs[layer.id] = viewModelScope.launch {
+                layer.outlined = withContext(Dispatchers.Default) { OutlinedBitmap.of(layer.bitmap, thickness) }
+            }
+        }
+    }
+
     /** Removes a layer (never the last one). Returns its stack index for the toast's Undo. */
     fun delete(id: String): Int {
         val before = snapshot()
@@ -283,10 +323,17 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         commit(before)
     }
 
-    /** Freezes the layers, as they are now, for the Save screen (which draws or animates them). */
+    /**
+     * Freezes the layers, as they are now, for the Save screen (which draws or animates them),
+     * once every outline is ready.
+     */
     fun finish(then: () -> Unit) {
-        session.combined = Composition(_state.value.layers.map(Layer::snapshot))
-        then()
+        viewModelScope.launch {
+            refreshOutlines()
+            outlineJobs.values.toList().forEach { it.join() }
+            session.combined = Composition(_state.value.layers.map(Layer::snapshot))
+            then()
+        }
     }
 
     private companion object {

@@ -55,6 +55,8 @@ class LayerSnapshot(
     val motion: StickerMotion,
     val gif: Gif?,
     val trim: Trim?,
+    /** The cut-out with its outline, drawn instead of [still]; null for none. */
+    val outlined: OutlinedBitmap? = null,
 ) {
     val gifLengthMs: Int get() = trim?.lengthMs ?: 0
 }
@@ -107,11 +109,13 @@ class Composition(val layers: List<LayerSnapshot>) : StickerClip {
         // GIF's cursor and a bitmap its frames are copied into.
         private val stills = layers.map { layer ->
             if (layer.gif != null) return@map null
-            val drawn = layer.size * side
-            if (drawn < layer.still.width / 2f) {
-                StickerExport.smoothScale(layer.still, max(1, drawn.roundToInt()), max(1, (drawn * layer.still.height / layer.still.width).roundToInt()))
+            val source = layer.outlined?.bitmap ?: layer.still
+            // Drawn width of the source (outline padding included).
+            val drawn = layer.size * side * source.width / layer.still.width
+            if (drawn < source.width / 2f) {
+                StickerExport.smoothScale(source, max(1, drawn.roundToInt()), max(1, (drawn * source.height / source.width).roundToInt()))
             } else {
-                layer.still
+                source
             }
         }
         private val cursors = arrayOfNulls<Gif.Cursor>(layers.size)
@@ -131,9 +135,13 @@ class Composition(val layers: List<LayerSnapshot>) : StickerClip {
                     requireNotNull(stills[i])
                 }
                 layerMatrix(layer, side.toFloat(), t, matrix)
-                // Drawing a pre-shrunk copy: scale back up to the original's pixel grid.
-                if (bitmap.width != layer.still.width) {
-                    matrix.preScale(layer.still.width.toFloat() / bitmap.width, layer.still.height.toFloat() / bitmap.height)
+                // The outlined copy is padded: shift onto the cut-out's pixel grid.
+                val outlined = layer.outlined.takeIf { gif == null }
+                outlined?.let { matrix.preTranslate(-it.pad.toFloat(), -it.pad.toFloat()) }
+                // Drawing a pre-shrunk copy: scale back up to the source's pixel grid.
+                val source = outlined?.bitmap ?: layer.still
+                if (bitmap.width != source.width) {
+                    matrix.preScale(source.width.toFloat() / bitmap.width, source.height.toFloat() / bitmap.height)
                 }
                 canvas.drawBitmap(bitmap, matrix, paint)
             }

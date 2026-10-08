@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.stickermaker.data.Trim
 import java.io.File
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -39,13 +40,32 @@ class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Gif? =
     /** How a cut-out moves (GIF layers play instead). */
     var motion by mutableStateOf(StickerMotion.None)
 
+    /** A white outline around a cut-out (GIF layers have none). */
+    var outline by mutableStateOf(false)
+
+    /**
+     * The cut-out with its outline drawn, made for one size (the band is a fixed width on the
+     * sticker, so a resize needs a new one). Null until made; may lag behind [outline] and
+     * [size] for a moment.
+     */
+    var outlined by mutableStateOf<OutlinedBitmap?>(null)
+
+    /** The outline's width in this layer's pixels at its current size, to the half pixel. */
+    fun outlineThickness(): Float {
+        val px = StickerExport.OUTLINE_PX * bitmap.width / (size * Compositor.STICKER_PX)
+        return (px * 2).roundToInt().coerceAtLeast(1) / 2f
+    }
+
+    /** What to draw for this layer: the outlined copy when it's on and ready, else the cut-out. */
+    val drawn: OutlinedBitmap? get() = outlined?.takeIf { outline && !isGif }
+
     /** A GIF layer's frame showing right now in the canvas; set by the canvas's player. */
     var frame by mutableStateOf<ImageBitmap?>(null)
 
     val isGif: Boolean get() = gif != null
 
     /** Frozen for saving. */
-    fun snapshot() = LayerSnapshot(bitmap, centerX, centerY, size, rotation, flipped, if (isGif) StickerMotion.None else motion, gif, trim)
+    fun snapshot() = LayerSnapshot(bitmap, centerX, centerY, size, rotation, flipped, if (isGif) StickerMotion.None else motion, gif, trim, drawn)
 
     /** True if layer pixel ([lx], [ly]) is visible (or just inside the layer, when [boxOnly]). */
     fun hitsPixel(lx: Float, ly: Float, boxOnly: Boolean = false): Boolean {
@@ -57,6 +77,25 @@ class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Gif? =
 
     companion object {
         private const val HIT_ALPHA = 24
+    }
+}
+
+/**
+ * A cut-out with a white outline: [bitmap] is the cut-out padded by [pad] px on every side
+ * (room for the band), so its pixel (x, y) is the cut-out's (x − pad, y − pad).
+ */
+class OutlinedBitmap(val bitmap: Bitmap, val pad: Int, val thickness: Float) {
+    companion object {
+        /** [cutout] with a [thickness] px outline. Call off the main thread. */
+        fun of(cutout: Bitmap, thickness: Float): OutlinedBitmap {
+            val pad = ceil(thickness).toInt() + 1
+            val w = cutout.width + 2 * pad
+            val h = cutout.height + 2 * pad
+            val pixels = IntArray(w * h)
+            cutout.getPixels(pixels, pad * w + pad, w, 0, 0, cutout.width, cutout.height)
+            Outline.apply(pixels, w, h, thickness)
+            return OutlinedBitmap(Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888), pad, thickness)
+        }
     }
 }
 

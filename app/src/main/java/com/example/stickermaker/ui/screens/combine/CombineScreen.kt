@@ -46,6 +46,8 @@ import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.GifTag
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.MotionPicker
+import com.example.stickermaker.ui.components.SectionTitle
+import com.example.stickermaker.ui.components.SegmentedPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
@@ -165,7 +167,13 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                             }
                         },
                     )
-                    LayerMotion(state.selected, vm::setMotion)
+                    LayerOptions(
+                        layer = state.selected,
+                        allOutlined = state.layers.filterNot { it.isGif }.let { cutouts -> cutouts.isNotEmpty() && cutouts.all { it.outline } },
+                        onOutline = vm::setOutline,
+                        onOutlineAll = vm::setOutlineAll,
+                        onMotion = vm::setMotion,
+                    )
                 }
             }
             ChunkyButton(
@@ -217,24 +225,52 @@ private fun LayerStrip(state: CombineUiState, vm: CombineViewModel, onDelete: (L
     }
 }
 
-/** How the picked layer moves: a motion picker for a cut-out; a GIF just plays. */
+/**
+ * The picked layer's own look: a cut-out gets an outline and a motion picker; a GIF just
+ * plays. "All" outlines every cut-out at once (or clears them when they all have one).
+ */
 @Composable
-private fun LayerMotion(layer: Layer?, onSelect: (StickerMotion) -> Unit) {
+private fun LayerOptions(
+    layer: Layer?,
+    allOutlined: Boolean,
+    onOutline: (Boolean) -> Unit,
+    onOutlineAll: (Boolean) -> Unit,
+    onMotion: (StickerMotion) -> Unit,
+) {
     if (layer == null) return
+    val colors = AppTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
-        Text("Motion · layer ${layer.number}", style = MaterialTheme.typography.titleLarge)
+        Text("Layer ${layer.number}", style = MaterialTheme.typography.titleLarge)
         if (layer.isGif) {
             Text(
-                "A GIF plays its trimmed part. Shorter loops repeat to fill the longest GIF.",
+                "A GIF plays its trimmed part, with no outline or motion of its own. Shorter loops repeat to fill the longest GIF.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = AppTheme.colors.inkMuted,
+                color = colors.inkMuted,
             )
         } else {
+            SectionTitle("Outline")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
+                SegmentedPicker(
+                    options = listOf(false, true),
+                    selected = layer.outline,
+                    onSelect = onOutline,
+                    label = { if (it) "White outline" else "None" },
+                    modifier = Modifier.weight(1f),
+                )
+                ChunkyButton(
+                    text = if (allOutlined) "None on all" else "On all",
+                    onClick = { onOutlineAll(!allOutlined) },
+                    color = Palette.Sky,
+                    size = ChunkySize.Medium,
+                    modifier = Modifier.padding(end = Dimens.ShadowS),
+                )
+            }
+            SectionTitle("Motion")
             // The picker previews motions on a sticker-shaped square of this layer.
             val sample by produceState<ImageBitmap?>(null, layer) {
                 value = withContext(Dispatchers.Default) { StickerExport.fit(layer.bitmap).asImageBitmap() }
             }
-            MotionPicker(sample = sample, selected = layer.motion, onSelect = onSelect)
+            MotionPicker(sample = sample, selected = layer.motion, onSelect = onMotion)
         }
     }
 }

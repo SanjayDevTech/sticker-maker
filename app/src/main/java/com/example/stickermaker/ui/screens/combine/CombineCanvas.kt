@@ -186,7 +186,12 @@ fun CombineCanvas(
                     drawIntoCanvas { canvas ->
                         for (layer in currentLayers) {
                             playback.matrixOf(layer, side, matrix)
-                            val bitmap = if (layer.isGif) layer.frame?.asAndroidBitmap() ?: layer.bitmap else layer.bitmap
+                            val outlined = layer.drawn
+                            val bitmap = when {
+                                layer.isGif -> layer.frame?.asAndroidBitmap() ?: layer.bitmap
+                                outlined != null -> outlined.bitmap.also { matrix.preTranslate(-outlined.pad.toFloat(), -outlined.pad.toFloat()) }
+                                else -> layer.bitmap
+                            }
                             canvas.nativeCanvas.drawBitmap(bitmap, matrix, paint)
                         }
                     }
