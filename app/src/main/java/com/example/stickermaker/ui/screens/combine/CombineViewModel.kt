@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.stickermaker.data.CombineLayout
 import com.example.stickermaker.data.LayerPlacement
 import com.example.stickermaker.data.StickerSession
+import com.example.stickermaker.data.WhatsAppLimits
 import android.graphics.Bitmap
 import com.example.stickermaker.editor.Composition
 import com.example.stickermaker.editor.Compositor
 import com.example.stickermaker.editor.StickerMotion
 import com.example.stickermaker.editor.Layer
 import com.example.stickermaker.editor.OutlinedBitmap
+import com.example.stickermaker.editor.StickerExport
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -109,12 +111,17 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
         }
     }
 
-    /** Starting layout: each fits ~70% of the board, fanned out a little so all are visible. */
+    /**
+     * Starting layout: each fits ~70% of the board, fanned out a little so all are visible. A
+     * lone layer starts as big as an auto-fitted sticker, so arranging starts from what Save
+     * would give.
+     */
     private fun arrange(layers: List<Layer>) {
         val n = layers.size
+        val fit = if (n == 1) SINGLE_FIT else FIT
         layers.forEachIndexed { i, layer ->
-            val longSide = FIT / max(1f, layer.aspect)
-            layer.size = if (layer.aspect > 1f) longSide else FIT
+            val longSide = fit / max(1f, layer.aspect)
+            layer.size = if (layer.aspect > 1f) longSide else fit
             val spread = if (n > 1) (i - (n - 1) / 2f) / (n - 1) else 0f
             layer.centerX = 0.5f + spread * FAN
             layer.centerY = 0.5f + spread * FAN * 0.6f
@@ -339,6 +346,8 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
     private companion object {
         const val TAG = "Combine"
         const val FIT = 0.7f
+        /** [StickerExport.fit]'s share of the square: all but the margin on each side. */
+        const val SINGLE_FIT = 1f - 2f * StickerExport.MARGIN_PX / WhatsAppLimits.STICKER_PX
         const val FAN = 0.16f
         const val MAX_UNDO = 100
     }

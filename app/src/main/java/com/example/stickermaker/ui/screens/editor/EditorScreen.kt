@@ -130,26 +130,55 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
                 ToolPanel(state, vm, view)
             }
             if (count > 1) Filmstrip(state.images, state.index, vm::select)
-            ChunkyButton(
-                text = when {
-                    !state.isLast -> "Next image"
-                    state.mode == SessionMode.Combine -> "Combine"
-                    count > 1 -> "Save stickers"
-                    else -> "Save sticker"
-                },
-                onClick = {
-                    if (!state.isLast) {
-                        vm.next()
-                    } else {
-                        vm.saveCurrent()
-                        if (state.mode == SessionMode.Combine) onCombine() else onSave()
-                    }
-                },
-                icon = if (state.isLast) R.drawable.ic_check else R.drawable.ic_arrow_forward,
-                size = ChunkySize.Large,
-                enabled = state.ready,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (count == 1) {
+                // One image: save it auto-fitted, or arrange it first (size, turn, flip, motion).
+                Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
+                    ChunkyButton(
+                        text = "Arrange",
+                        onClick = {
+                            vm.saveCurrent()
+                            vm.useMode(SessionMode.Combine)
+                            onCombine()
+                        },
+                        icon = R.drawable.ic_open_with,
+                        size = ChunkySize.Large,
+                        color = Palette.Sky,
+                        enabled = state.ready,
+                    )
+                    ChunkyButton(
+                        text = "Save sticker",
+                        onClick = {
+                            vm.saveCurrent()
+                            vm.useMode(SessionMode.Separate)
+                            onSave()
+                        },
+                        icon = R.drawable.ic_check,
+                        size = ChunkySize.Large,
+                        enabled = state.ready,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                ChunkyButton(
+                    text = when {
+                        !state.isLast -> "Next image"
+                        state.mode == SessionMode.Combine -> "Combine"
+                        else -> "Save stickers"
+                    },
+                    onClick = {
+                        if (!state.isLast) {
+                            vm.next()
+                        } else {
+                            vm.saveCurrent()
+                            if (state.mode == SessionMode.Combine) onCombine() else onSave()
+                        }
+                    },
+                    icon = if (state.isLast) R.drawable.ic_check else R.drawable.ic_arrow_forward,
+                    size = ChunkySize.Large,
+                    enabled = state.ready,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

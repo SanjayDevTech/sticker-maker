@@ -264,6 +264,14 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
     }
 
     /** Hands the current cut to the session (saved in the background). */
+    /**
+     * With one image the mode is the path taken: Combine to arrange it on the canvas, Separate to
+     * save it auto-fitted (also after coming back from arranging).
+     */
+    fun useMode(mode: SessionMode) {
+        session.mode.value = mode
+    }
+
     fun saveCurrent() {
         val s = _state.value
         val image = s.current ?: return

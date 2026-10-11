@@ -96,7 +96,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
         containerColor = colors.canvas,
         topBar = {
             StickerTopBar(
-                title = "Combine",
+                title = if (state.layers.size == 1) "Arrange" else "Combine",
                 collapsed = true,
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
                 actions = {
@@ -150,7 +150,11 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                     }
                 }
                 Text(
-                    "Tap a layer to pick it. Drag to move; pinch or pull the yellow corner to size and turn. Cut-outs can move too.",
+                    if (state.layers.size == 1) {
+                        "Drag to move; pinch or pull the yellow corner to size and turn. Pick a motion below to make it move."
+                    } else {
+                        "Tap a layer to pick it. Drag to move; pinch or pull the yellow corner to size and turn. Cut-outs can move too."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.inkMuted,
                 )
