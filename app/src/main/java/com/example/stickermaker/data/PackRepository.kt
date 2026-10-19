@@ -99,7 +99,7 @@ class PackRepository(context: Context) {
         (listOf(pack) + packs) to pack
     }
 
-    suspend fun renamePack(packId: String, name: String) = updatePack(packId, bumpVersion = false) {
+    suspend fun renamePack(packId: String, name: String) = updatePack(packId) {
         it.copy(name = name.take(WhatsAppLimits.MAX_NAME_CHARS))
     }
 
@@ -124,7 +124,7 @@ class PackRepository(context: Context) {
      * [sourceFile] and [maskFile] (use [newId] for the id). Replaces it if the id exists.
      */
     suspend fun putSticker(packId: String, sticker: Sticker, index: Int? = null) =
-        updatePack(packId, bumpVersion = true) { pack ->
+        updatePack(packId) { pack ->
             val without = pack.stickers.filterNot { it.id == sticker.id }
             val existingAt = pack.stickers.indexOfFirst { it.id == sticker.id }
             val at = (index ?: existingAt.takeIf { it >= 0 } ?: without.size).coerceIn(0, without.size)
@@ -132,14 +132,14 @@ class PackRepository(context: Context) {
         }
 
     suspend fun reorderStickers(packId: String, orderedIds: List<String>) {
-        updatePack(packId, bumpVersion = true) { pack ->
+        updatePack(packId) { pack ->
             val byId = pack.stickers.associateBy { it.id }
             pack.copy(stickers = orderedIds.mapNotNull { byId[it] } + pack.stickers.filterNot { it.id in orderedIds })
         }
         refreshTray(packId)
     }
 
-    suspend fun setEmojis(packId: String, stickerId: String, emojis: List<String>) = updatePack(packId, bumpVersion = false) { pack ->
+    suspend fun setEmojis(packId: String, stickerId: String, emojis: List<String>) = updatePack(packId) { pack ->
         pack.copy(stickers = pack.stickers.map {
             if (it.id == stickerId) it.copy(emojis = emojis.take(WhatsAppLimits.MAX_EMOJIS).ifEmpty { listOf("🙂") }) else it
         })
@@ -167,7 +167,7 @@ class PackRepository(context: Context) {
             }
             written
         }
-        updatePack(id, bumpVersion = true) { pack ->
+        updatePack(id) { pack ->
             pack.copy(stickers = (pack.stickers + added).take(WhatsAppLimits.MAX_STICKERS))
         }
         refreshTray(id)
@@ -180,7 +180,7 @@ class PackRepository(context: Context) {
         val index = pack.stickers.indexOfFirst { it.id == stickerId }
         if (index < 0) return null
         val sticker = pack.stickers[index]
-        updatePack(packId, bumpVersion = true) { p -> p.copy(stickers = p.stickers.filterNot { it.id == stickerId }) }
+        updatePack(packId) { p -> p.copy(stickers = p.stickers.filterNot { it.id == stickerId }) }
         refreshTray(packId)
         return sticker to index
     }
@@ -226,17 +226,16 @@ class PackRepository(context: Context) {
 
     // ---- internals -------------------------------------------------------------------------
 
-    private suspend fun updatePack(
-        packId: String,
-        bumpVersion: Boolean,
-        transform: (StickerPack) -> StickerPack,
-    ) = edit { packs ->
+    /**
+     * Changes one pack and bumps its image_data_version, the only signal WhatsApp gets that a
+     * pack it has cached changed: stickers, order, name and emojis alike. Always bumped, even
+     * when the index looks the same, since a sticker can be rewritten in place under its id.
+     */
+    private suspend fun updatePack(packId: String, transform: (StickerPack) -> StickerPack) = edit { packs ->
         val now = System.currentTimeMillis()
         val updated = packs.map { pack ->
             if (pack.id != packId) return@map pack
-            transform(pack).let {
-                it.copy(updatedAt = now, imageDataVersion = if (bumpVersion) it.imageDataVersion + 1 else it.imageDataVersion)
-            }
+            transform(pack).copy(updatedAt = now, imageDataVersion = pack.imageDataVersion + 1)
         }
         updated.sortedByDescending { it.updatedAt } to Unit
     }
