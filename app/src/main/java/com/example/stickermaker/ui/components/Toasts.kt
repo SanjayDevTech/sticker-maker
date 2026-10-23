@@ -61,7 +61,7 @@ enum class ToastResult { Dismissed, ActionPerformed }
 
 object ToastDefaults {
     /** Toasts counting down at once. The rest wait, faded, until one clears. */
-    const val MAX_ACTIVE = 3
+    const val MAX_ACTIVE = 2
     const val DURATION_MS = 4_000L
     const val UNDO_DURATION_MS = 6_000L
 }
@@ -227,7 +227,7 @@ private fun Toast(
                 scaleX = scale
                 scaleY = scale
                 transformOrigin = TransformOrigin(0.5f, 0f)
-                // Hidden ones (5th+) are fully behind the peeking one anyway; fading them keeps
+                // Hidden ones (4th+) are fully behind the peeking one anyway; fading them keeps
                 // the swap invisible when they move up. Waiting toasts draw no shadow, so
                 // ModulateAlpha has nothing to show through.
                 alpha = visibility.value

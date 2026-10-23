@@ -105,8 +105,8 @@ go bold: big buttons, squiggly edges and stickers slapped on things are all welc
 - Lists: stable `key`s, `animateItem()`, and `staggeredEntrance(index)` for first appearance.
 - Destructive actions happen immediately and offer Undo (`toasts.showUndo(...)`), with no
   confirm dialogs.
-- Toasts (`rememberToastState()` + `ToastHost`) stack. The bottom 3 are live and count down;
-  the 4th peeks out from behind the stack; the rest are hidden. They are cleared only by
+- Toasts (`rememberToastState()` + `ToastHost`) stack. The bottom 2 are live and count down;
+  the 3rd peeks out from behind the stack; the rest are hidden. They are cleared only by
   swiping left or right (timeouts slide away the same way), with no close buttons. Launch
   one coroutine per `show()`. Use bottom sheets rather than dialogs.
 - Show skeletons, not spinners. Empty states get an icon tile, a headline, a line of help and an action.
