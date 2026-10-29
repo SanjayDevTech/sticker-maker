@@ -39,6 +39,18 @@ android {
         }
     }
 
+    signingConfigs {
+        // Deliberately public: the key and its passwords are in the repo so anyone can build
+        // an APK that installs over (and updates) a GitHub release. That also means anyone can
+        // sign one, so it gives no protection against tampered builds. Never use it for Play.
+        create("githubPublicRelease") {
+            storeFile = rootProject.file("github-public-release.jks")
+            storePassword = "github-public-release"
+            keyAlias = "github-public-release"
+            keyPassword = "github-public-release"
+        }
+    }
+
     buildTypes {
         release {
             // R8 code + resource shrinking over every package (the convention
@@ -50,7 +62,7 @@ android {
             }
             // Debug signing so `installRelease` works locally until a real
             // keystore exists. Replace before shipping.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("githubPublicRelease")
         }
     }
     compileOptions {

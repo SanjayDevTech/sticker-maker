@@ -8,7 +8,7 @@ are arm64 too).
 
 ```sh
 ./gradlew assembleDebug
-./gradlew assembleRelease                      # R8 + resource shrinking, debug-signed for now
+./gradlew assembleRelease                      # R8 + resource shrinking, signed with the public github-public-release key
 ./gradlew :app:generateBaselineProfile         # emulator only (see below); commit the output
 ./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest   # real device (emulators refuse)
 ./gradlew :app:lintRelease
@@ -176,6 +176,12 @@ These were checked on a real device. Don't re-litigate them without new evidence
 - Regenerate the baseline profile after adding a major screen, and extend the journey in
   `BaselineProfileGenerator` to cover it.
 - Before claiming a UI change works, check it with a release build on a device/emulator.
+
+## Signing
+
+- Release builds are signed with `github-public-release.jks` (repo root). It is **public on purpose**:
+  key and passwords are committed so anyone can build an APK that updates a GitHub release.
+  It protects nothing, so never use it for the Play Store; that would need a private key.
 
 ## Git
 
