@@ -20,10 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Same JDK the build runs on (gradle/gradle-daemon-jvm.properties), so Gradle doesn't
+      # download another one.
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 25
 
       # Caches Gradle's dependencies and build cache between runs.
       - uses: gradle/actions/setup-gradle@v6
