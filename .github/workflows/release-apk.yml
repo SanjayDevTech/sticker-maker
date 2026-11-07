@@ -46,9 +46,10 @@ jobs:
           mv app/build/outputs/apk/release/app-release.apk "$name.apk"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
+      # Unzipped: the artifact is the .apk itself, named after the file.
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.apk.outputs.name }}
           path: ${{ steps.apk.outputs.name }}.apk
+          archive: false
           if-no-files-found: error
           retention-days: 30
