@@ -210,11 +210,11 @@ fun HomeScreen(
                 showStartSheet = false
                 pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
             }
-            StartOption(R.drawable.ic_bolt, "Some text", "Loud words, big fonts", Palette.Yellow) {
+            StartOption(R.drawable.ic_bolt, "Some text", "Loud words, big fonts", Palette.Yellow, soon = true) {
                 showStartSheet = false
                 scope.launch { toasts.show("Text is coming soon") }
             }
-            StartOption(R.drawable.ic_sentiment_satisfied, "A blank canvas", "Doodle it", Palette.Peach) {
+            StartOption(R.drawable.ic_sentiment_satisfied, "A blank canvas", "Doodle it", Palette.Peach, soon = true) {
                 showStartSheet = false
                 scope.launch { toasts.show("Canvas is coming soon") }
             }
@@ -222,8 +222,9 @@ fun HomeScreen(
     }
 }
 
+/** One way to start; [soon] marks one that isn't built yet (it still answers taps with a toast). */
 @Composable
-private fun StartOption(icon: Int, title: String, subtitle: String, color: Color, onClick: () -> Unit) {
+private fun StartOption(icon: Int, title: String, subtitle: String, color: Color, soon: Boolean = false, onClick: () -> Unit) {
     BrutalSurface(
         modifier = Modifier
             .fillMaxWidth()
@@ -240,10 +241,11 @@ private fun StartOption(icon: Int, title: String, subtitle: String, color: Color
             BrutalSurface(Modifier.size(44.dp), shape = Shapes.Small, color = AppTheme.colors.surface, shadow = 0.dp) {
                 Icon(painterResource(icon), null, Modifier.align(Alignment.Center).size(24.dp))
             }
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleLarge)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium)
             }
+            if (soon) StickerTag("soon", Palette.Pink, rotation = 6f)
         }
     }
 }
