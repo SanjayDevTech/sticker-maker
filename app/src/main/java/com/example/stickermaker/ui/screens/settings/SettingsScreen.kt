@@ -32,7 +32,18 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.R
+import com.example.stickermaker.ui.components.ToastHost
+import com.example.stickermaker.ui.components.ToastState
+import com.example.stickermaker.ui.components.rememberToastState
+import java.time.LocalDate
+import kotlinx.coroutines.launch
 import com.example.stickermaker.appViewModel
 import com.example.stickermaker.data.ThemeMode
 import com.example.stickermaker.ui.components.BrutalSurface
@@ -59,12 +70,19 @@ fun SettingsScreen(
     onOpenDesignKit: () -> Unit,
     onOpenLicenses: () -> Unit,
 ) {
-    val viewModel = appViewModel { SettingsViewModel(it.settings) }
+    val viewModel = appViewModel { SettingsViewModel(it.settings, it.backup) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val toasts = rememberToastState()
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { launch { toasts.show(it) } }
+    }
     SettingsContent(
         state = state,
+        toasts = toasts,
         onBack = onBack,
         onThemeMode = viewModel::setThemeMode,
+        onBackUp = viewModel::backUp,
+        onRestore = viewModel::restore,
         onOpenDesignKit = onOpenDesignKit,
         onOpenLicenses = onOpenLicenses,
     )
@@ -73,8 +91,11 @@ fun SettingsScreen(
 @Composable
 private fun SettingsContent(
     state: SettingsUiState,
+    toasts: ToastState,
     onBack: () -> Unit,
     onThemeMode: (ThemeMode) -> Unit,
+    onBackUp: (Uri) -> Unit,
+    onRestore: (Uri) -> Unit,
     onOpenDesignKit: () -> Unit,
     onOpenLicenses: () -> Unit,
 ) {
@@ -89,6 +110,7 @@ private fun SettingsContent(
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
             )
         },
+        snackbarHost = { ToastHost(toasts) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -128,6 +150,8 @@ private fun SettingsContent(
             }
             SectionTitle("Sticker keyboard", Modifier.staggeredEntrance(2))
             StickerKeyboardCard(Modifier.staggeredEntrance(2).fillMaxWidth())
+            SectionTitle("Backup", Modifier.staggeredEntrance(2))
+            BackupCard(state.backupWork, toasts, onBackUp, onRestore, Modifier.staggeredEntrance(2).fillMaxWidth())
             SectionTitle("Under the hood", Modifier.staggeredEntrance(2))
             BrutalSurface(
                 modifier = Modifier
@@ -193,6 +217,64 @@ private fun StickerKeyboardCard(modifier: Modifier) {
             color = Palette.Sky,
             modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowM, bottom = Dimens.ShadowM),
         )
+    }
+}
+
+/**
+ * Saves every pack to a file the user picks and adds packs back from one. Restoring only
+ * adds packs that aren't here (same id), so it's safe to run any time.
+ */
+@Composable
+private fun BackupCard(
+    work: BackupWork?,
+    toasts: ToastState,
+    onBackUp: (Uri) -> Unit,
+    onRestore: (Uri) -> Unit,
+    modifier: Modifier,
+) {
+    val packs by LocalAppContainer.current.packs.packs.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) onBackUp(uri)
+    }
+    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onRestore(uri)
+    }
+    StickerCard(modifier) {
+        Text("Your packs, in one file", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Back up before reinstalling, then restore. Restoring only adds packs that aren't here " +
+                "and never replaces or removes one. Packs WhatsApp still has show as added.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = AppTheme.colors.inkMuted,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+            modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowM, bottom = Dimens.ShadowM),
+        ) {
+            ChunkyButton(
+                text = if (work == BackupWork.BackingUp) "Backing up…" else "Back up",
+                onClick = {
+                    if (packs.isNullOrEmpty()) {
+                        scope.launch { toasts.show("No packs to back up yet") }
+                    } else {
+                        save.launch("sticker-packs-${LocalDate.now()}.zip")
+                    }
+                },
+                icon = R.drawable.ic_file_save,
+                size = ChunkySize.Medium,
+                color = Palette.Lime,
+                enabled = work == null,
+            )
+            ChunkyButton(
+                text = if (work == BackupWork.Restoring) "Restoring…" else "Restore",
+                onClick = { open.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                icon = R.drawable.ic_file_open,
+                size = ChunkySize.Medium,
+                color = Palette.Sky,
+                enabled = work == null,
+            )
+        }
     }
 }
 

@@ -196,6 +196,10 @@ These were checked on a real device. Don't re-litigate them without new evidence
   Surface is `fillMaxSize`, which made the IME window full screen.
   - Keep the panel a fixed height. Resizing the IME window per frame is sluggish, because
     the app behind relays out too.
+- **Backup** (`data/PackBackup`, Settings): one zip with `backup.json` + each pack's files.
+  Restore only adds packs whose id isn't live (a retired one comes back); it never replaces or
+  removes. Ids are kept and `image_data_version` is bumped, so "Added to WhatsApp" stays exact:
+  it's always asked of WhatsApp, never stored. Android's own zip checks reject `..` paths.
 - **Package visibility:** the manifest's `<queries>` lists `com.whatsapp` and
   `com.whatsapp.w4b`.
 - **Before any release:** `applicationId` is still `com.example.*`, which the Play Store

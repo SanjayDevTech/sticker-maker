@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.stickermaker.data.PackBackup
 import com.example.stickermaker.data.PackRepository
 import com.example.stickermaker.data.SettingsStore
 import com.example.stickermaker.data.StickerSession
@@ -21,6 +22,7 @@ class AppContainer(context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
     val packs: PackRepository by lazy { PackRepository(appContext) }
+    val backup: PackBackup by lazy { PackBackup(appContext, packs) }
     val session: StickerSession by lazy { StickerSession(appContext) }
     val thumbnails: ThumbnailCache by lazy { ThumbnailCache() }
 }

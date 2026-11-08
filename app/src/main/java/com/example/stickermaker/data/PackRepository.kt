@@ -31,7 +31,8 @@ import java.util.UUID
  * Deletes only drop the pack/sticker from the index, so an Undo can put it straight back;
  * files no longer referenced are swept on the next cold start.
  *
- * Lives under filesDir, so Android Auto Backup carries packs across a reinstall.
+ * Lives under filesDir, so Android Auto Backup may carry packs across a reinstall; for a
+ * backup the user controls, see [PackBackup].
  */
 class PackRepository(context: Context) {
 
@@ -112,6 +113,28 @@ class PackRepository(context: Context) {
         val removed = packs.firstOrNull { it.id == packId }
         if (removed != null) retired = retired.filterNot { it.id == packId } + removed
         packs.filterNot { it.id == packId } to removed
+    }
+
+    /**
+     * Adds a pack from a backup whose files are already in [files] (laid out like [packDir]).
+     * Pack ids are unique: if the app already has [pack]'s id, nothing changes and this
+     * returns false. A deleted (retired) pack with that id is replaced and comes back.
+     *
+     * Its image_data_version is bumped, so if WhatsApp still has the pack it re-reads the
+     * stickers instead of trusting a cache that may not match the backup.
+     */
+    suspend fun addFromBackup(pack: StickerPack, files: File): Boolean = edit { packs ->
+        if (packs.any { it.id == pack.id }) return@edit packs to false
+        val target = packDir(pack.id)
+        target.deleteRecursively()
+        target.parentFile?.mkdirs()
+        if (!files.renameTo(target)) {
+            files.copyRecursively(target, overwrite = true)
+            files.deleteRecursively()
+        }
+        retired = retired.filterNot { it.id == pack.id }
+        val added = pack.copy(imageDataVersion = pack.imageDataVersion + 1)
+        (packs + added).sortedByDescending { it.updatedAt } to true
     }
 
     suspend fun restorePack(pack: StickerPack) = edit { packs ->
