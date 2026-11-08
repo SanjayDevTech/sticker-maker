@@ -175,6 +175,14 @@ These were checked on a real device. Don't re-litigate them without new evidence
   `src/main/keepRules/`, which already keeps line numbers and strips `Log.v/d/i` in release.
 - Regenerate the baseline profile after adding a major screen, and extend the journey in
   `BaselineProfileGenerator` to cover it.
+- The editing flow (pick, cut out, Move & size, Combine, GIF, Save, Pack) needs a photo, so it's
+  recorded by hand instead: `app/src/main/baselineProfiles/editing-journey.txt`, merged with the
+  generated profile at build time and never overwritten by it. To re-record on the emulator,
+  install the `nonMinifiedRelease` APK, `pm clear` + `cmd package compile --reset`, use the app,
+  then broadcast `androidx.profileinstaller.action.SAVE_PROFILE` and `pm dump-profiles
+  --dump-classes-and-methods`; the profile lands in `/data/misc/profman/`.
+- The profile is recorded on `nonMinifiedRelease` with R8 off (`androidComponents` in
+  `app/build.gradle.kts`). With R8 on there, rules come out in renamed classes and are useless.
 - Before claiming a UI change works, check it with a release build on a device/emulator.
 
 ## Signing
