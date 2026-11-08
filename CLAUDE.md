@@ -53,10 +53,28 @@ coordinates.
   - **Videos** (`editor/VideoFrames`): go through exactly the GIF path. `Gif` and `VideoFrames`
     both implement `Animation`; `SessionImage.isAnimated` covers both and `isVideo` tells them
     apart (labels and the default trim only). On import the video's first minute is decoded
-    once with `MediaMetadataRetriever.getFramesAtIndex` (rotation applied, sound dropped) into
-    JPEGs at ≤ 512 px and ≤ 25 fps, so scrubbing and playback never seek a decoder. Runs split
-    at key frames across up to 4 decoders, with resizing and JPEG writing on a pool beside
-    them. Emulator (software decode): 10 s 720p ≈ 8 s, 60 s ≈ 42 s.
+    once into JPEGs at ≤ 512 px and ≤ 25 fps (sound dropped), so scrubbing and playback never
+    seek a decoder.
+    - Decoding: `MediaCodec` → GPU (`editor/FrameGrabber`: rotates upright, box-filters down
+      to ≤ 512, reads back only the small frame), with JPEG writing on a pool beside it. The
+      old `MediaMetadataRetriever` path is the fallback (e.g. HDR that can't be tone-mapped).
+      Emulator: 60 s 720p loads in ≈ 6 s (was 42 s with the retriever).
+    - Progressive: import returns once the first 3 s (the default trim) are ready; the rest
+      loads in the background. `VideoFrames.loaded` lists the ready stretches; the trim bar
+      hatches the rest and keeps the window inside a ready stretch. Arrange shows a `LoadRing`
+      per item while importing and on video cards still loading.
+    - One video decodes at a time (`Turns`): parallel decoders were slower in total on the
+      emulator. Priority: every video's first 3 s, then the stretch the trim bar shows
+      (`focus`, jumping from the key frame before it), then the rest of the video open in the
+      editor, then the other videos in list order (`order`).
+    - Before decoding, `MediaCodecList.findDecoderForFormat` (codec, size, profile) picks the
+      decoder; if none exists, import fails at once with `UnsupportedVideo` ("can't play its
+      format"), skipping the retriever. HDR: tone-mapping is requested; if the decoder can't,
+      HLG loads unconverted (flagged `hdrUnconverted`, noted in the trim panel) and PQ goes to
+      the retriever. The retriever's per-frame fallback gives up after 5 misses at the start.
+      Untested on real HDR / unsupported-codec cases (the Pixel 9 handles all of them).
+    - The trim bar shows at most 20 s at once and scrolls for longer clips (drag the frames,
+      or hold a dragged end by an edge), with an overview line underneath.
     - Video is far busier than most GIFs. Each frame is a full still, so 500 KB goes fast:
       videos start with a **3 s** trim (still extendable to 10 s), and below 8 fps is a
       `lastResort` set (quality drops first). Combined stickers may also go below 8 fps,

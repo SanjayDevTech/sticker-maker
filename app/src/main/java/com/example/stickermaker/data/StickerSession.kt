@@ -12,6 +12,7 @@ import com.example.stickermaker.editor.MaskHistory
 import com.example.stickermaker.editor.StickerMotion
 import com.example.stickermaker.editor.VideoFrames
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -91,7 +92,7 @@ data class Trim(val startMs: Int, val endMs: Int) {
         fun default(durationMs: Int, video: Boolean = false) =
             Trim(0, minOf(durationMs, if (video) VIDEO_DEFAULT_MS else WhatsAppLimits.ANIMATED_MAX_MS))
 
-        private const val VIDEO_DEFAULT_MS = 3_000
+        const val VIDEO_DEFAULT_MS = 3_000
     }
 }
 
@@ -126,13 +127,29 @@ class StickerSession(context: Context) {
 
     val mode = MutableStateFlow(SessionMode.Separate)
 
-    /** How many picked images are still being imported (shown as skeletons). */
-    private val _importing = MutableStateFlow(0)
-    val importing: StateFlow<Int> = _importing.asStateFlow()
+    /** One picked image still being imported (shown as a skeleton). */
+    class PendingImport internal constructor(val id: Long) {
+        /** How far a video's start has loaded (0..1); null while that isn't known (photos, GIFs). */
+        val progress = MutableStateFlow<Float?>(null)
+    }
 
-    /** Emits how many images of a batch couldn't be opened (unreadable, revoked access, not an image). */
-    private val _importFailures = MutableSharedFlow<Int>(extraBufferCapacity = 4)
-    val importFailures: SharedFlow<Int> = _importFailures.asSharedFlow()
+    private var nextPendingId = 0L
+    private val _importing = MutableStateFlow<List<PendingImport>>(emptyList())
+    val importing: StateFlow<List<PendingImport>> = _importing.asStateFlow()
+
+    /** How far [image]'s frames have loaded, for a video still loading after import; else null. */
+    fun loading(image: SessionImage): StateFlow<VideoFrames.Loaded>? =
+        if (image.isVideo) (synchronized(gifs) { gifs[image.id] } as? VideoFrames)?.loaded else null
+
+    /**
+     * What couldn't be opened from a batch: [images] and [videos] that were unreadable (revoked
+     * access, broken file, not media), and [unplayable] videos in a format no decoder on this
+     * phone handles.
+     */
+    data class ImportFailures(val images: Int, val videos: Int, val unplayable: Int)
+
+    private val _importFailures = MutableSharedFlow<ImportFailures>(extraBufferCapacity = 4)
+    val importFailures: SharedFlow<ImportFailures> = _importFailures.asSharedFlow()
 
     /** The pack these stickers are meant for (started from a pack's "Add stickers"), if any. */
     val targetPackId = MutableStateFlow<String?>(null)
@@ -189,32 +206,54 @@ class StickerSession(context: Context) {
     /** Appends [uris] (e.g. a share while already creating). */
     fun add(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        _importing.update { it + uris.size }
+        val pending = uris.map { PendingImport(nextPendingId++) }
+        _importing.update { it + pending }
         // Imports run in parallel but are appended in the order they were picked.
         scope.launch {
-            val imported = uris.map { uri ->
+            val results = uris.mapIndexed { i, uri ->
                 async {
-                    runCatching { import(uri) }
+                    runCatching { import(uri, pending[i]) }
                         .onFailure { Log.w(TAG, "Couldn't import $uri", it) }
-                        .getOrNull()
                 }
             }.awaitAll()
-            _images.update { it + imported.filterNotNull() }
-            _importing.update { it - uris.size }
-            val failed = imported.count { it == null }
-            if (failed > 0) _importFailures.emit(failed)
+            _images.update { it + results.mapNotNull { r -> r.getOrNull() } }
+            reorderVideos()
+            _importing.update { list -> list.filterNot { it in pending } }
+            val failed = uris.zip(results).filter { (_, r) -> r.isFailure }
+            if (failed.isNotEmpty()) {
+                val unplayable = failed.count { (_, r) -> r.exceptionOrNull() is VideoFrames.UnsupportedVideo }
+                val videos = failed.count { (uri, r) ->
+                    r.exceptionOrNull() !is VideoFrames.UnsupportedVideo && resolver.getType(uri)?.startsWith("video/") == true
+                }
+                _importFailures.emit(ImportFailures(failed.size - unplayable - videos, videos, unplayable))
+            }
         }
     }
 
-    fun move(from: Int, to: Int) = _images.update { list ->
-        if (from !in list.indices || to !in list.indices) return@update list
-        list.toMutableList().apply { add(to, removeAt(from)) }
+    fun move(from: Int, to: Int) {
+        _images.update { list ->
+            if (from !in list.indices || to !in list.indices) return@update list
+            list.toMutableList().apply { add(to, removeAt(from)) }
+        }
+        reorderVideos()
     }
 
-    fun remove(id: String) = _images.update { list -> list.filterNot { it.id == id } }
+    fun remove(id: String) {
+        _images.update { list -> list.filterNot { it.id == id } }
+        reorderVideos()
+    }
 
-    fun restore(image: SessionImage, index: Int) = _images.update { list ->
-        list.toMutableList().apply { add(index.coerceIn(0, size), image) }
+    fun restore(image: SessionImage, index: Int) {
+        _images.update { list -> list.toMutableList().apply { add(index.coerceIn(0, size), image) } }
+        reorderVideos()
+    }
+
+    /** Videos load the rest of their frames in list order; removed ones (still undoable) last. */
+    private fun reorderVideos() {
+        val position = _images.value.withIndex().associate { (i, image) -> image.id to i }
+        synchronized(gifs) {
+            for ((id, gif) in gifs) (gif as? VideoFrames)?.order = position[id] ?: REMOVED_ORDER
+        }
     }
 
     fun clear() {
@@ -223,7 +262,10 @@ class StickerSession(context: Context) {
         _images.value = emptyList()
         histories.clear()
         _trims.value = emptyMap()
-        synchronized(gifs) { gifs.clear() }
+        synchronized(gifs) {
+            gifs.values.forEach { (it as? VideoFrames)?.close() }
+            gifs.clear()
+        }
         targetPackId.value = null
         combined = null
         combineLayout = null
@@ -260,8 +302,8 @@ class StickerSession(context: Context) {
 
     private fun framesDir(id: String) = File(dir, "$id.frames")
 
-    private fun import(uri: Uri): SessionImage {
-        if (resolver.getType(uri)?.startsWith("video/") == true) return importVideo(uri)
+    private fun import(uri: Uri, pending: PendingImport): SessionImage {
+        if (resolver.getType(uri)?.startsWith("video/") == true) return importVideo(uri, pending)
         importGif(uri)?.let { return it }
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE // editor needs pixel access
@@ -293,10 +335,37 @@ class StickerSession(context: Context) {
         return SessionImage(id, file, gif.width, gif.height, isAnimated = true, durationMs = gif.durationMs)
     }
 
-    /** A video, decoded into frames (its first minute; sound dropped). */
-    private fun importVideo(uri: Uri): SessionImage {
+    /**
+     * A video, decoded into frames (its first minute; sound dropped). Returns once the default
+     * trim's frames are ready; the rest keeps loading while the user edits.
+     */
+    private fun importVideo(uri: Uri, pending: PendingImport): SessionImage {
         val id = UUID.randomUUID().toString().take(12)
-        val frames = VideoFrames.extract({ requireNotNull(resolver.openFileDescriptor(uri, "r")) }, framesDir(id))
+        val headMs = Trim.VIDEO_DEFAULT_MS
+        var watching: Job? = null
+        val frames = try {
+            VideoFrames.extract(
+                { requireNotNull(resolver.openFileDescriptor(uri, "r")) },
+                framesDir(id),
+                headMs = headMs,
+                onLoading = { loading ->
+                    // Progress is known only while frames load progressively (not on the slow fallback).
+                    watching?.cancel()
+                    pending.progress.value = null
+                    watching = loading?.let { f ->
+                        scope.launch {
+                            val need = minOf(headMs, f.durationMs).coerceAtLeast(1)
+                            f.loaded.collect { pending.progress.value = (it.readyMs.toFloat() / need).coerceAtMost(1f) }
+                        }
+                    }
+                },
+            )
+        } catch (e: Exception) {
+            framesDir(id).deleteRecursively()
+            throw e
+        } finally {
+            watching?.cancel()
+        }
         if (frames == null) {
             framesDir(id).deleteRecursively()
             throw IllegalArgumentException("Couldn't read any frames from $uri")
@@ -322,6 +391,7 @@ class StickerSession(context: Context) {
 
     companion object {
         private const val MAX_GIF_BYTES = 40 * 1024 * 1024
+        private const val REMOVED_ORDER = 10_000
 
         /** Editing resolution. Output is 512 px; the headroom keeps zoomed pixel-erasing precise. */
         const val MAX_SOURCE_PX = 1280

@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.stickermaker.LocalAppContainer
 import com.example.stickermaker.R
 import com.example.stickermaker.data.SessionImage
+import com.example.stickermaker.data.StickerSession
 import com.example.stickermaker.data.SessionMode
 import com.example.stickermaker.data.WhatsAppLimits
 import com.example.stickermaker.ui.components.BrutalSurface
@@ -51,6 +52,7 @@ import com.example.stickermaker.ui.components.dragLift
 import com.example.stickermaker.ui.components.gridDragReorder
 import com.example.stickermaker.ui.components.rememberGridDragState
 import com.example.stickermaker.ui.components.SegmentedPicker
+import com.example.stickermaker.ui.components.LoadRing
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
@@ -82,7 +84,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
 
     LaunchedEffect(session) {
         session.importFailures.collect { failed ->
-            launch { toasts.show(if (failed == 1) "Couldn't open one image" else "Couldn't open $failed images") }
+            launch { toasts.show(failed.message()) }
         }
     }
 
@@ -124,7 +126,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
                         else -> "Cut them out"
                     },
                     onClick = onCutOut,
-                    enabled = importing == 0,
+                    enabled = importing.isEmpty(),
                     icon = R.drawable.ic_auto_awesome,
                     size = ChunkySize.Large,
                     modifier = Modifier
@@ -135,7 +137,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
             }
         },
     ) { padding ->
-        if (images.isEmpty() && importing == 0) {
+        if (images.isEmpty() && importing.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(
                     icon = R.drawable.ic_image,
@@ -198,8 +200,13 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
                     },
                 )
             }
-            items(importing) { SkeletonBlock(Modifier.aspectRatio(1f), Shapes.Medium) }
-            if (images.size + importing < WhatsAppLimits.MAX_STICKERS) {
+            for (pending in importing) {
+                item(key = "importing-${pending.id}", contentType = "skeleton") {
+                    val progress = pending.progress.collectAsStateWithLifecycle()
+                    SkeletonBlock(Modifier.aspectRatio(1f), Shapes.Medium, progress)
+                }
+            }
+            if (images.size + importing.size < WhatsAppLimits.MAX_STICKERS) {
                 item(key = "add", contentType = "add") {
                     BrutalSurface(
                         modifier = Modifier.aspectRatio(1f),
@@ -216,10 +223,6 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
     }
 }
 
-private fun androidx.compose.foundation.lazy.grid.LazyGridScope.items(count: Int, content: @Composable () -> Unit) {
-    repeat(count) { i -> item(key = "importing-$i", contentType = "skeleton") { content() } }
-}
-
 @Composable
 private fun ImageTile(
     image: SessionImage,
@@ -233,10 +236,11 @@ private fun ImageTile(
             shape = Shapes.Medium,
             shadow = Dimens.ShadowS,
         ) {
+            // Cropped to the square, like the photo picker's grid.
             FileImage(
                 file = image.file,
                 modifier = Modifier.fillMaxSize().checkerboard(),
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Crop,
                 animated = image.isAnimated && !image.isVideo,
             )
         }
@@ -247,6 +251,19 @@ private fun ImageTile(
             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
         )
         if (image.isAnimated) GifTag(Modifier.align(Alignment.BottomStart).padding(start = 4.dp, bottom = 8.dp), video = image.isVideo)
+        // A video keeps loading after it appears: a small dial until it's all in.
+        val session = LocalAppContainer.current.session
+        val loading = remember(image.id) { session.loading(image) }?.collectAsStateWithLifecycle()
+        if (loading != null) {
+            val finished by remember(loading) { derivedStateOf { loading.value.finished } }
+            if (!finished) {
+                LoadRing(
+                    { loading.value.totalMs.toFloat() / image.durationMs.coerceAtLeast(1) },
+                    Modifier.align(Alignment.BottomEnd).padding(end = Dimens.ShadowS + 4.dp, bottom = Dimens.ShadowS + 4.dp),
+                    size = 28.dp,
+                )
+            }
+        }
         IconTile(
             R.drawable.ic_close,
             "Remove image $position",
@@ -255,4 +272,21 @@ private fun ImageTile(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 8.dp),
         )
     }
+}
+
+/** "Couldn't open one image and 2 videos. This phone can't play one video's format." */
+private fun StickerSession.ImportFailures.message(): String {
+    fun count(n: Int, what: String) = if (n == 1) "one $what" else "$n ${what}s"
+    val unreadable = listOfNotNull(
+        count(images, "image").takeIf { images > 0 },
+        count(videos, "video").takeIf { videos > 0 },
+    )
+    return listOfNotNull(
+        unreadable.takeIf { it.isNotEmpty() }?.joinToString(" and ", prefix = "Couldn't open "),
+        when (unplayable) {
+            0 -> null
+            1 -> "This phone can't play that video's format"
+            else -> "This phone can't play the format of $unplayable videos"
+        },
+    ).joinToString(". ")
 }

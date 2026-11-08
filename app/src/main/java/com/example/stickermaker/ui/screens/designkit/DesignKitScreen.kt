@@ -1,27 +1,29 @@
 package com.example.stickermaker.ui.screens.designkit
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import com.example.stickermaker.ui.components.dragLift
-import com.example.stickermaker.ui.components.gridDragReorder
-import com.example.stickermaker.ui.components.rememberGridDragState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
@@ -29,10 +31,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,32 +46,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.stickermaker.R
+import com.example.stickermaker.ui.components.BrutalSlider
 import com.example.stickermaker.ui.components.BrutalSurface
+import com.example.stickermaker.ui.components.BrutalTextField
 import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.IconTile
+import com.example.stickermaker.ui.components.LoadRing
 import com.example.stickermaker.ui.components.SectionTitle
 import com.example.stickermaker.ui.components.SegmentedPicker
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.StickerCard
-import com.example.stickermaker.ui.components.ToastHost
-import com.example.stickermaker.ui.components.rememberToastState
-import com.example.stickermaker.ui.components.BrutalSlider
-import com.example.stickermaker.ui.components.BrutalTextField
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.StickerTopBar
+import com.example.stickermaker.ui.components.ToastHost
+import com.example.stickermaker.ui.components.dragLift
+import com.example.stickermaker.ui.components.gridDragReorder
 import com.example.stickermaker.ui.components.rememberCollapsed
+import com.example.stickermaker.ui.components.rememberGridDragState
+import com.example.stickermaker.ui.components.rememberToastState
 import com.example.stickermaker.ui.components.sharedBlock
 import com.example.stickermaker.ui.components.showUndo
 import com.example.stickermaker.ui.components.staggeredEntrance
 import com.example.stickermaker.ui.screens.settings.DESIGN_KIT_SHARED_KEY
 import com.example.stickermaker.ui.theme.AppTheme
 import com.example.stickermaker.ui.theme.Dimens
+import com.example.stickermaker.ui.theme.LocalReduceMotion
 import com.example.stickermaker.ui.theme.Palette
 import com.example.stickermaker.ui.theme.Shapes
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private data class DemoItem(val id: Int, val name: String)
 
@@ -287,9 +295,25 @@ fun DesignKitScreen(onBack: () -> Unit) {
             item(key = "loading", contentType = "demo-block") {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
                     SkeletonBlock(Modifier.fillMaxWidth().height(72.dp))
+                    // A skeleton with progress (e.g. a video loading), filling over and over.
+                    val reduceMotion = LocalReduceMotion.current
+                    val demoProgress = if (reduceMotion) {
+                        remember { mutableStateOf<Float?>(0.6f) }
+                    } else {
+                        val t = rememberInfiniteTransition(label = "load").animateFloat(
+                            0f, 1f, infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "progress",
+                        )
+                        remember(t) { derivedStateOf<Float?> { t.value } }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
                         SkeletonBlock(Modifier.weight(1f).height(110.dp), Shapes.Large)
-                        SkeletonBlock(Modifier.weight(1f).height(110.dp), Shapes.Large)
+                        SkeletonBlock(Modifier.weight(1f).height(110.dp), Shapes.Large, demoProgress)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12), verticalAlignment = Alignment.CenterVertically) {
+                        LoadRing({ 0.25f })
+                        LoadRing({ 0.6f })
+                        LoadRing({ 1f })
+                        LoadRing({ 0.4f }, size = 28.dp)
                     }
                 }
             }

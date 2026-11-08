@@ -32,7 +32,8 @@ fun Modifier.checkerboard(cell: Dp = 10.dp): Modifier {
         while (y < size.height) {
             var x = if (row % 2 == 0) 0f else c
             while (x < size.width) {
-                drawRect(dark, Offset(x, y), Size(c, c))
+                // Edge cells are cut to the bounds; whole ones spilled past the image.
+                drawRect(dark, Offset(x, y), Size(minOf(c, size.width - x), minOf(c, size.height - y)))
                 x += 2 * c
             }
             y += c
