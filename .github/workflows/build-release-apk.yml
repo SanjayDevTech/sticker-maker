@@ -1,0 +1,39 @@
+name: Build Release APK
+
+# Manual only: Actions → Build Release APK → Run workflow. Builds the chosen branch's latest
+# commit and uploads the APK as a workflow artifact (no version change, no release).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-release-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # x64 on purpose: the NDK ships no Linux arm64 host build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/build-apk
+
+      - name: Name the APK after the commit
+        id: apk
+        run: |
+          name="StickerMaker-${GITHUB_SHA::7}-release"
+          mv app/build/outputs/apk/release/app-release.apk "$name.apk"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      # Unzipped: the artifact is the .apk itself, named after the file.
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.apk.outputs.name }}.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,120 @@
+name: Trigger a Release
+
+# Manual only: Actions → Trigger a Release → Run workflow (on the default branch).
+# 1. Bumps versionCode (+1) and versionName (next minor), or uses the values typed in, which
+#    must both move forward.
+# 2. Commits the bump and builds the signed APK from that commit.
+# 3. Only if the build passes: pushes the commit and tag v<versionName> together, then publishes
+#    a GitHub release with the APK attached (as a plain .apk, not a zip).
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "versionName, e.g. 1.4 (empty = next minor). Must be newer than the current one."
+        required: false
+        default: ""
+      version_code:
+        description: "versionCode, e.g. 12 (empty = current + 1). Must be higher than the current one."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+# One release at a time; never cancel one halfway through.
+concurrency:
+  group: trigger-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # x64 on purpose: the NDK ships no Linux arm64 host build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Only from the default branch
+        if: github.ref_name != github.event.repository.default_branch
+        run: |
+          echo "::error::Run this on ${{ github.event.repository.default_branch }}, not ${{ github.ref_name }}."
+          exit 1
+
+      - uses: actions/checkout@v7
+
+      - name: Work out the new version
+        id: version
+        env:
+          INPUT_NAME: ${{ inputs.version_name }}
+          INPUT_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          file=app/build.gradle.kts
+          current_code=$(sed -nE 's/^ *versionCode = ([0-9]+).*/\1/p' "$file")
+          current_name=$(sed -nE 's/^ *versionName = "([^"]+)".*/\1/p' "$file")
+          [ -n "$current_code" ] && [ -n "$current_name" ] || { echo "::error::Couldn't read versionCode/versionName from $file"; exit 1; }
+
+          # True when $1 is a strictly newer version than $2 (numeric, part by part).
+          newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]; }
+
+          name=$(echo "$INPUT_NAME" | xargs)
+          if [ -z "$name" ]; then
+            # Next minor: 0.1 -> 0.2, 1.4.3 -> 1.5.0 (keeps the number of parts).
+            IFS=. read -r major minor patch <<< "$current_name"
+            name="$major.$((minor + 1))${patch:+.0}"
+          fi
+          if ! [[ "$name" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::versionName '$name' must look like 1.4 or 1.4.2"; exit 1
+          fi
+          if ! newer "$name" "$current_name"; then
+            echo "::error::versionName $name isn't newer than the current $current_name"; exit 1
+          fi
+
+          code=$(echo "$INPUT_CODE" | xargs)
+          [ -n "$code" ] || code=$((current_code + 1))
+          if ! [[ "$code" =~ ^[0-9]+$ ]] || [ "$code" -gt 2100000000 ]; then
+            echo "::error::versionCode '$code' must be a whole number up to 2100000000"; exit 1
+          fi
+          if [ "$code" -le "$current_code" ]; then
+            echo "::error::versionCode $code isn't higher than the current $current_code"; exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v$name" > /dev/null; then
+            echo "::error::Tag v$name already exists"; exit 1
+          fi
+
+          echo "Version: $current_name ($current_code) -> $name ($code)"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the version bump
+        env:
+          NAME: ${{ steps.version.outputs.name }}
+          CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          sed -i -E "s/^( *versionCode = )[0-9]+/\1$CODE/; s/^( *versionName = )\"[^\"]+\"/\1\"$NAME\"/" app/build.gradle.kts
+          git diff --exit-code --quiet app/build.gradle.kts && { echo "::error::The version didn't change"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release v$NAME" -m "versionName $NAME, versionCode $CODE."
+
+      - uses: ./.github/actions/build-apk
+
+      - name: Push the commit and tag
+        env:
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          git tag -a "v$NAME" -m "v$NAME"
+          # Both or neither: fails cleanly if the branch moved on since the run started.
+          git push --atomic origin "HEAD:refs/heads/$GITHUB_REF_NAME" "refs/tags/v$NAME"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          apk="StickerMaker-v$NAME.apk"
+          mv app/build/outputs/apk/release/app-release.apk "$apk"
+          gh release create "v$NAME" "$apk" --verify-tag --title "v$NAME" --generate-notes

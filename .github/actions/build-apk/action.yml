@@ -1,0 +1,28 @@
+name: Build release APK
+description: >
+  Builds the signed release APK of the checked-out commit and leaves it at
+  app/build/outputs/apk/release/app-release.apk. Shared by the build and release workflows.
+
+runs:
+  using: composite
+  steps:
+    # Same JDK the build runs on (gradle/gradle-daemon-jvm.properties), so Gradle doesn't
+    # download another one.
+    - uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: 25
+
+    # Caches Gradle's dependencies and build cache between runs.
+    - uses: gradle/actions/setup-gradle@v6
+
+    # Pinned in app/build.gradle.kts; installed up front so the build doesn't fetch them mid-way.
+    - name: Install NDK and CMake
+      shell: bash
+      run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.1.12297006" "cmake;3.22.1" > /dev/null
+
+    # Signed with the public github-public-release key committed in the repo. The first build
+    # downloads libwebp (pinned, SHA-256 checked) for the native encoder.
+    - name: Build release APK
+      shell: bash
+      run: ./gradlew :app:assembleRelease --stacktrace
