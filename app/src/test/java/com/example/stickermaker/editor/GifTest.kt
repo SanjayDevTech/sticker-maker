@@ -119,7 +119,7 @@ class GifCursorTest {
         val gif = requireNotNull(Gif.parse(bytes))
         val reference = requireNotNull(Gif.parse(bytes))
         for (from in listOf(0, 5, 16, 19)) {
-            val cursor = gif.Cursor(from)
+            val cursor = gif.cursor(from)
             do {
                 assertArrayEquals("from $from at ${cursor.index}", reference.frame(cursor.index), cursor.canvas)
             } while (cursor.advance())

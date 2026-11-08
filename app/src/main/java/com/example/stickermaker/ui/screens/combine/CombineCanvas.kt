@@ -37,7 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.example.stickermaker.editor.Choreography
 import com.example.stickermaker.editor.Composition
-import com.example.stickermaker.editor.Gif
+import com.example.stickermaker.editor.Animation
 import com.example.stickermaker.editor.Layer
 import com.example.stickermaker.editor.StickerMotion
 import kotlinx.coroutines.Dispatchers
@@ -188,7 +188,7 @@ fun CombineCanvas(
                             playback.matrixOf(layer, side, matrix)
                             val outlined = layer.drawn
                             val bitmap = when {
-                                layer.isGif -> layer.frame?.asAndroidBitmap() ?: layer.bitmap
+                                layer.isAnimated -> layer.frame?.asAndroidBitmap() ?: layer.bitmap
                                 outlined != null -> outlined.bitmap.also { matrix.preTranslate(-outlined.pad.toFloat(), -outlined.pad.toFloat()) }
                                 else -> layer.bitmap
                             }
@@ -246,7 +246,7 @@ class Playback {
         val h = layer.bitmap.height
         Composition.placement(w, h, layer.centerX, layer.centerY, layer.size, layer.rotation, layer.flipped, side, into)
         val motion = layer.motion
-        if (moving && layer.id != held && !layer.isGif && motion != StickerMotion.None) {
+        if (moving && layer.id != held && !layer.isAnimated && motion != StickerMotion.None) {
             val local = choreography.localMs(motion.periodMs, timeMs) / motion.periodMs
             Composition.applyMotion(motion.pose(local), w, h, side, into)
         }
@@ -286,7 +286,7 @@ fun rememberPlayback(layers: List<Layer>): Playback {
         derivedStateOf {
             Choreography(
                 gifLengthsMs = layers.mapNotNull { it.trim?.lengthMs },
-                motionPeriodsMs = layers.filter { !it.isGif && it.motion != StickerMotion.None }.map { it.motion.periodMs },
+                motionPeriodsMs = layers.filter { !it.isAnimated && it.motion != StickerMotion.None }.map { it.motion.periodMs },
             )
         }
     }
@@ -297,8 +297,8 @@ fun rememberPlayback(layers: List<Layer>): Playback {
         withContext(Dispatchers.Default) {
             // Per GIF layer: a cursor playing forward and three buffers (one shown, one maybe
             // still being drawn, one filling).
-            val gifs = layers.filter { it.isGif }
-            val cursors = arrayOfNulls<Gif.Cursor>(gifs.size)
+            val gifs = layers.filter { it.isAnimated }
+            val cursors = arrayOfNulls<Animation.Cursor>(gifs.size)
             val buffers = gifs.map { l -> List(3) { Bitmap.createBitmap(l.bitmap.width, l.bitmap.height, Bitmap.Config.ARGB_8888) } }
             val images = buffers.map { list -> list.map(Bitmap::asImageBitmap) }
             val slots = IntArray(gifs.size)
@@ -312,7 +312,7 @@ fun rememberPlayback(layers: List<Layer>): Playback {
                     val index = gif.frameAt(trim.startMs + choreography.localMs(trim.lengthMs, t).toInt())
                     val c = cursors[i]
                     if (c != null && c.index == index && layer.frame != null) return@forEachIndexed
-                    val cursor = c?.takeIf { it.index <= index } ?: gif.Cursor(index).also { cursors[i] = it }
+                    val cursor = c?.takeIf { it.index <= index } ?: gif.cursor(index).also { cursors[i] = it }
                     while (cursor.index < index) cursor.advance()
                     buffers[i][slots[i]].setPixels(cursor.canvas, 0, gif.width, 0, 0, gif.width, gif.height)
                     layer.frame = images[i][slots[i]]

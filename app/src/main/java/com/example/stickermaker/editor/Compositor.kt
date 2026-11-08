@@ -23,7 +23,7 @@ import kotlin.math.roundToInt
  * while drawing.
  */
 @Stable
-class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Gif? = null, val trim: Trim? = null) {
+class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Animation? = null, val trim: Trim? = null) {
     val image: ImageBitmap = bitmap.asImageBitmap()
     val aspect: Float = bitmap.height.toFloat() / bitmap.width
 
@@ -57,15 +57,16 @@ class Layer(val id: String, val number: Int, val bitmap: Bitmap, val gif: Gif? =
     }
 
     /** What to draw for this layer: the outlined copy when it's on and ready, else the cut-out. */
-    val drawn: OutlinedBitmap? get() = outlined?.takeIf { outline && !isGif }
+    val drawn: OutlinedBitmap? get() = outlined?.takeIf { outline && !isAnimated }
 
     /** A GIF layer's frame showing right now in the canvas; set by the canvas's player. */
     var frame by mutableStateOf<ImageBitmap?>(null)
 
-    val isGif: Boolean get() = gif != null
+    val isAnimated: Boolean get() = gif != null
+    val isVideo: Boolean get() = gif is VideoFrames
 
     /** Frozen for saving. */
-    fun snapshot() = LayerSnapshot(bitmap, centerX, centerY, size, rotation, flipped, if (isGif) StickerMotion.None else motion, gif, trim, drawn)
+    fun snapshot() = LayerSnapshot(bitmap, centerX, centerY, size, rotation, flipped, if (isAnimated) StickerMotion.None else motion, gif, trim, drawn)
 
     /** True if layer pixel ([lx], [ly]) is visible (or just inside the layer, when [boxOnly]). */
     fun hitsPixel(lx: Float, ly: Float, boxOnly: Boolean = false): Boolean {

@@ -116,14 +116,14 @@ object StickerExport {
     }
 
     /** GIF frame [index] scaled to fit a transparent [side] square (up or down), as ARGB. */
-    fun fitGifFrame(gif: Gif, index: Int, side: Int): IntArray =
+    fun fitGifFrame(gif: Animation, index: Int, side: Int): IntArray =
         GifFitter(gif, side).let { f -> f.fit(gif.frame(index)).also { f.recycle() } }
 
     /**
      * Fits GIF frames into a transparent square, reusing its bitmaps from frame to frame (one
      * caller at a time). Big shrinks halve first, like [smoothScale], so edges stay smooth.
      */
-    class GifFitter(private val gif: Gif, private val side: Int) {
+    class GifFitter(private val gif: Animation, private val side: Int) {
         private val source = Bitmap.createBitmap(gif.width, gif.height, Bitmap.Config.ARGB_8888)
         private val out = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         private val canvas = Canvas(out)
@@ -152,9 +152,15 @@ object StickerExport {
      * Frames to animate: frame i shows [durations] ms. [render] gives its unpremultiplied ARGB;
      * it's called from one coroutine at a time, in order during full passes (cheap for sources
      * that play forward), so it may reuse buffers. [fewer] is the same clip with fewer frames,
-     * for sources that may drop some (null: can't).
+     * for sources that may drop some (null: can't). A [lastResort] set is only used when no set
+     * before it fits at all.
      */
-    class FrameSet(val durations: IntArray, val render: (Int) -> IntArray, val fewer: () -> FrameSet? = { null }) {
+    class FrameSet(
+        val durations: IntArray,
+        val render: (Int) -> IntArray,
+        val lastResort: Boolean = false,
+        val fewer: () -> FrameSet? = { null },
+    ) {
         val size: Int get() = durations.size
     }
 
@@ -218,6 +224,7 @@ object StickerExport {
         var choice: Pair<FrameSet, Int>? = null
         var set: FrameSet? = frames
         while (set != null) {
+            if (set.lastResort && choice != null) break
             val q = bestFor(set.size)
             if (q >= 0 && (choice == null || q < choice.second)) choice = set to q
             if (q >= 0 && ANIM_QUALITIES[q] >= FAIR_QUALITY) break

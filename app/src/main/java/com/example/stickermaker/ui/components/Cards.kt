@@ -68,16 +68,16 @@ fun StickerTag(
     }
 }
 
-/** A tiny "GIF" badge for thumbnails of animated images (a [StickerTag] is too wide there). */
+/** A tiny "GIF" (or "VIDEO") badge for thumbnails of animated images (a [StickerTag] is too wide there). */
 @Composable
-fun GifTag(modifier: Modifier = Modifier) {
+fun GifTag(modifier: Modifier = Modifier, video: Boolean = false) {
     BrutalSurface(
         modifier = modifier.padding(2.dp).graphicsLayer { rotationZ = -8f },
         shape = Shapes.Pill,
         color = Palette.Pink,
         shadow = 1.dp,
     ) {
-        Text("GIF", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+        Text(if (video) "VIDEO" else "GIF", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
     }
 }
 

@@ -77,7 +77,7 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
     val scope = rememberCoroutineScope()
     val colors = AppTheme.colors
     val count = state.images.size
-    // GIFs: the moment a trim edge is being dragged to (the player holds it), and where it plays.
+    // GIFs and videos: the moment a trim edge is being dragged to (the player holds it), and where it plays.
     var scrubMs by remember { mutableStateOf<Int?>(null) }
     val playhead = remember { mutableIntStateOf(0) }
 
@@ -111,7 +111,7 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
         ) {
             val gif = state.gif
             val trim = state.trim
-            if (state.isGif) {
+            if (state.isAnimated) {
                 BrutalSurface(Modifier.weight(1f).fillMaxWidth(), shape = Shapes.Large, color = Palette.Lavender, shadow = Dimens.ShadowM) {
                     when {
                         gif != null && trim != null -> GifPlayer(gif, trim, scrubMs, playhead, Modifier.fillMaxSize().padding(Dimens.Space16))
@@ -146,7 +146,8 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
                         enabled = state.ready,
                     )
                     ChunkyButton(
-                        text = "Save sticker",
+                        // Short so it fits beside Move & size at large font/display sizes.
+                        text = "Save",
                         onClick = {
                             vm.saveCurrent()
                             vm.useMode(SessionMode.Separate)
@@ -380,7 +381,7 @@ private fun Filmstrip(images: List<SessionImage>, selected: Int, onSelect: (Int)
                         modifier = Modifier.fillMaxSize().checkerboard(6.dp),
                     )
                 }
-                if (image.isGif) GifTag(Modifier.align(Alignment.BottomEnd))
+                if (image.isAnimated) GifTag(Modifier.align(Alignment.BottomEnd), video = image.isVideo)
             }
         }
     }

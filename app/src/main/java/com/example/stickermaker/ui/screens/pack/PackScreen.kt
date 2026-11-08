@@ -204,7 +204,7 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
                         modifier = Modifier.aspectRatio(1f).padding(end = Dimens.ShadowS, bottom = Dimens.ShadowS),
                         color = colors.surface,
                         shadow = Dimens.ShadowS,
-                        onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
                         onClickLabel = "Add stickers",
                     ) {
                         Icon(painterResource(R.drawable.ic_add), null, Modifier.align(Alignment.Center).size(32.dp))

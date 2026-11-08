@@ -7,7 +7,7 @@ import com.example.stickermaker.data.SessionImage
 import com.example.stickermaker.data.SessionMode
 import com.example.stickermaker.data.StickerSession
 import com.example.stickermaker.data.Trim
-import com.example.stickermaker.editor.Gif
+import com.example.stickermaker.editor.Animation
 import com.example.stickermaker.editor.CutoutEngine
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +33,7 @@ data class EditorUiState(
     /** Null while the current image loads, and for GIFs (trimmed, not cut out). */
     val engine: CutoutEngine? = null,
     /** The current image's parsed GIF, if it is one; null while loading. */
-    val gif: Gif? = null,
+    val gif: Animation? = null,
     /** The current GIF's chosen part. */
     val trim: Trim? = null,
     val failed: Boolean = false,
@@ -58,7 +58,7 @@ data class EditorUiState(
     val magicBusy: Boolean = false,
 ) {
     val current: SessionImage? get() = images.getOrNull(index)
-    val isGif: Boolean get() = current?.isGif == true
+    val isAnimated: Boolean get() = current?.isAnimated == true
 
     /** The current image is open and ready (cut-out engine or GIF). */
     val ready: Boolean get() = engine != null || gif != null
@@ -111,7 +111,7 @@ class EditorViewModel(private val session: StickerSession) : ViewModel() {
             it.copy(index = index, engine = null, gif = null, trim = null, failed = false, canUndo = false, canRedo = false,
                 adjustingFill = false, magicMarks = 0, magicBusy = false)
         }
-        if (image.isGif) {
+        if (image.isAnimated) {
             loadJob = viewModelScope.launch {
                 val gif = withContext(Dispatchers.IO) { session.gif(image) }
                 _state.update { it.copy(gif = gif, trim = session.trim(image), failed = gif == null) }

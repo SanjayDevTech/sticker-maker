@@ -208,9 +208,9 @@ fun HomeScreen(
             onDismissRequest = { showStartSheet = false },
             title = "Start from…",
         ) {
-            StartOption(R.drawable.ic_image, "Photos", "Pick one or more, cut them out", Palette.Mint) {
+            StartOption(R.drawable.ic_image, "Photos", "Photos, GIFs or videos, one or more", Palette.Mint) {
                 showStartSheet = false
-                pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
             }
             StartOption(R.drawable.ic_bolt, "Some text", "Loud words, big fonts", Palette.Yellow) {
                 showStartSheet = false

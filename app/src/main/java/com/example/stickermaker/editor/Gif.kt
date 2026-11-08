@@ -11,34 +11,22 @@ package com.example.stickermaker.editor
  */
 class Gif private constructor(
     private val bytes: ByteArray,
-    val width: Int,
-    val height: Int,
+    override val width: Int,
+    override val height: Int,
     private val frames: List<FrameInfo>,
     private val globalPalette: IntArray?,
-) {
-    val frameCount: Int get() = frames.size
+) : Animation {
+    override val frameCount: Int get() = frames.size
 
     /** How long frame [i] shows, in ms (browser rules: 0–10 ms means 100 ms). */
     fun delayMs(i: Int): Int = frames[i].delayMs
 
-    /** When frame [i] starts, in ms from the beginning. */
-    val startMs: IntArray = IntArray(frames.size).also { starts ->
+    override val startMs: IntArray = IntArray(frames.size).also { starts ->
         var t = 0
         frames.forEachIndexed { i, f -> starts[i] = t; t += f.delayMs }
     }
 
-    val durationMs: Int get() = if (frames.isEmpty()) 0 else startMs.last() + frames.last().delayMs
-
-    /** The frame showing at [ms] (clamped to the GIF). */
-    fun frameAt(ms: Int): Int {
-        var lo = 0
-        var hi = frames.lastIndex
-        while (lo < hi) {
-            val mid = (lo + hi + 1) / 2
-            if (startMs[mid] <= ms) lo = mid else hi = mid - 1
-        }
-        return lo
-    }
+    override val durationMs: Int get() = if (frames.isEmpty()) 0 else startMs.last() + frames.last().delayMs
 
     private class FrameInfo(
         val left: Int, val top: Int, val w: Int, val h: Int,
@@ -61,7 +49,7 @@ class Gif private constructor(
      * Frame [i] as full-canvas ARGB (not premultiplied; transparent where nothing was drawn).
      * The array is new and the caller's to keep.
      */
-    fun frame(i: Int): IntArray {
+    override fun frame(i: Int): IntArray {
         require(i in frames.indices)
         val slot = i / CHECKPOINT_EVERY
         // Reuse the nearest checkpoint at or before i, building any missing ones on the way.
@@ -92,18 +80,19 @@ class Gif private constructor(
      * one step (where [frame] may replay up to a checkpoint's worth). For playback; not
      * thread-safe, and [canvas] is overwritten by the next [advance].
      */
-    inner class Cursor(from: Int) {
+    override fun cursor(from: Int): Animation.Cursor = Cursor(from)
+
+    private inner class Cursor(from: Int) : Animation.Cursor {
         private val scratch = IntArray(width * height)
         private var state = State(from, frame(from), null).let { s ->
             // frame() returns only the canvas; rebuild what disposal-to-previous needs.
             if (frames[from].disposal == DISPOSE_PREVIOUS && from > 0) State(from, s.canvas, frame(from - 1)) else s
         }
 
-        val index: Int get() = state.index
-        val canvas: IntArray get() = state.canvas
+        override val index: Int get() = state.index
+        override val canvas: IntArray get() = state.canvas
 
-        /** Moves to the next frame; false at the last one. */
-        fun advance(): Boolean {
+        override fun advance(): Boolean {
             if (state.index >= frames.lastIndex) return false
             state = draw(state.index + 1, state, scratch)
             return true

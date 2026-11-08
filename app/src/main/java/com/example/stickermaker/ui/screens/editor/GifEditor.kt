@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,9 +41,10 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.stickermaker.data.Trim
 import com.example.stickermaker.data.WhatsAppLimits
-import com.example.stickermaker.editor.Gif
+import com.example.stickermaker.editor.Animation
 import com.example.stickermaker.editor.StickerMotion
 import com.example.stickermaker.editor.Timeline
+import com.example.stickermaker.editor.VideoFrames
 import com.example.stickermaker.ui.components.BrutalSurface
 import com.example.stickermaker.ui.components.StickerTag
 import com.example.stickermaker.ui.components.checkerboard
@@ -66,7 +68,7 @@ private const val MIN_TRIM_MS = 300
  * is to [playhead] for the trim bar.
  */
 @Composable
-fun GifPlayer(gif: Gif, trim: Trim, scrubMs: Int?, playhead: MutableIntState, modifier: Modifier = Modifier) {
+fun GifPlayer(gif: Animation, trim: Trim, scrubMs: Int?, playhead: MutableIntState, modifier: Modifier = Modifier) {
     // Three buffers: one shown, one possibly still being drawn by the render thread, one filling.
     val buffers = remember(gif) { List(3) { Bitmap.createBitmap(gif.width, gif.height, Bitmap.Config.ARGB_8888) } }
     val images = remember(buffers) { buffers.map(Bitmap::asImageBitmap) }
@@ -88,7 +90,7 @@ fun GifPlayer(gif: Gif, trim: Trim, scrubMs: Int?, playhead: MutableIntState, mo
             val timeline = Timeline.of(gif.startMs, gif.durationMs, trim.startMs, trim.endMs, StickerMotion.FRAME_MS)
             if (timeline.size == 0) return@withContext
             while (isActive) {
-                val cursor = gif.Cursor(timeline.frames[0])
+                val cursor = gif.cursor(timeline.frames[0])
                 var at = trim.startMs
                 for (k in 0 until timeline.size) {
                     val began = SystemClock.uptimeMillis()
@@ -123,7 +125,7 @@ fun GifPlayer(gif: Gif, trim: Trim, scrubMs: Int?, playhead: MutableIntState, mo
 /** Trim controls for a GIF: the bar, what's kept, and a line of help. */
 @Composable
 fun TrimPanel(
-    gif: Gif,
+    gif: Animation,
     trim: Trim,
     onTrim: (Trim) -> Unit,
     onScrub: (Int?) -> Unit,
@@ -131,6 +133,7 @@ fun TrimPanel(
 ) {
     val colors = AppTheme.colors
     val tooLong = gif.durationMs > WhatsAppLimits.ANIMATED_MAX_MS
+    val what = if (gif is VideoFrames) "video" else "GIF"
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
             Text("Trim", style = MaterialTheme.typography.titleMedium)
@@ -144,10 +147,12 @@ fun TrimPanel(
         }
         TrimBar(gif, trim, onTrim, onScrub, playhead)
         Text(
-            if (tooLong) {
-                "This GIF runs ${seconds(gif.durationMs)}; a sticker plays up to 10 s. Slide the window to pick the part to keep."
+            if (gif is VideoFrames && gif.durationMs >= VideoFrames.MAX_MS) {
+                "Here's the video's first minute; a sticker plays up to 10 s. Slide the window to pick the part to keep."
+            } else if (tooLong) {
+                "This $what runs ${seconds(gif.durationMs)}; a sticker plays up to 10 s. Slide the window to pick the part to keep."
             } else {
-                "Drag the ends to trim. GIFs aren't cut out: the whole frame becomes the sticker."
+                "Drag the ends to trim. A $what isn't cut out: the whole frame becomes the sticker."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = colors.inkMuted,
@@ -164,7 +169,7 @@ private enum class Grab { Start, End, Window }
  * to slide it, tap outside to move it there. The window never exceeds WhatsApp's 10 s.
  */
 @Composable
-private fun TrimBar(gif: Gif, trim: Trim, onTrim: (Trim) -> Unit, onScrub: (Int?) -> Unit, playhead: MutableIntState) {
+private fun TrimBar(gif: Animation, trim: Trim, onTrim: (Trim) -> Unit, onScrub: (Int?) -> Unit, playhead: MutableIntState) {
     val colors = AppTheme.colors
     val duration = gif.durationMs
     val maxLength = minOf(duration, WhatsAppLimits.ANIMATED_MAX_MS)
@@ -189,6 +194,8 @@ private fun TrimBar(gif: Gif, trim: Trim, onTrim: (Trim) -> Unit, onScrub: (Int?
             Modifier
                 .fillMaxWidth()
                 .height(BAR_HEIGHT)
+                // The handles sit by the screen edges, where a drag would otherwise go back.
+                .systemGestureExclusion()
                 .pointerInput(duration) {
                     val edgeSlop = 28.dp.toPx()
                     fun msAt(x: Float) = (x / size.width * duration).roundToInt()

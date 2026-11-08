@@ -210,7 +210,7 @@ fun SaveScreen(onBack: () -> Unit, onSaved: (String) -> Unit) {
                 color = colors.inkMuted,
             )
 
-            // Outline and motion are for cut-outs; GIFs play as they are.
+            // Outline and motion are for cut-outs; GIFs and videos play as they are.
             if (state.hasStills) {
                 val hasClips = state.clips.isNotEmpty()
                 SectionTitle("Outline", Modifier.padding(top = Dimens.Space8))

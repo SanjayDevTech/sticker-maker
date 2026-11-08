@@ -18,29 +18,36 @@ interface StickerClip {
     fun frames(side: Int = WhatsAppLimits.STICKER_PX): StickerExport.FrameSet
 }
 
-/** A GIF's trimmed part, fitted into the square. Frames can be dropped to fit the size limit. */
-class GifStickerClip(val gif: Gif, val trim: Trim) : StickerClip {
+/**
+ * A GIF's or video's trimmed part, fitted into the square. Frames can be dropped to fit the
+ * size limit. A video is busier than most GIFs, so it keeps at least [MIN_VIDEO_FPS] (lower
+ * quality first) unless nothing at that rate fits.
+ */
+class GifStickerClip(val gif: Animation, val trim: Trim) : StickerClip {
     override fun frames(side: Int): StickerExport.FrameSet {
         val timeline = Timeline.of(gif.startMs, gif.durationMs, trim.startMs, trim.endMs, StickerMotion.FRAME_MS)
         val fitter = StickerExport.GifFitter(gif, side)
         fun set(timeline: Timeline): StickerExport.FrameSet {
             // Frames build on each other and are asked for in order: play forward with one cursor
             // (one decode per frame) instead of replaying from a checkpoint each time.
-            var cursor: Gif.Cursor? = null
+            var cursor: Animation.Cursor? = null
             val render = { k: Int ->
                 val index = timeline.frames[k]
-                val c = cursor?.takeIf { it.index <= index } ?: gif.Cursor(index).also { cursor = it }
+                val c = cursor?.takeIf { it.index <= index } ?: gif.cursor(index).also { cursor = it }
                 while (c.index < index) c.advance()
                 fitter.fit(c.canvas)
             }
             // Never below two frames: WhatsApp wants an animated sticker to animate.
-            return StickerExport.FrameSet(timeline.durations, render) {
+            val fps = timeline.size * 1000f / timeline.durations.sum().coerceAtLeast(1)
+            return StickerExport.FrameSet(timeline.durations, render, lastResort = gif is VideoFrames && fps < MIN_VIDEO_FPS) {
                 timeline.thinned().takeIf { it.size in 2 until timeline.size }?.let(::set)
             }
         }
         return set(timeline)
     }
 }
+
+private const val MIN_VIDEO_FPS = 8
 
 /** One layer of a combined sticker, frozen when the combine canvas is saved. */
 class LayerSnapshot(
@@ -53,7 +60,7 @@ class LayerSnapshot(
     val rotation: Float,
     val flipped: Boolean,
     val motion: StickerMotion,
-    val gif: Gif?,
+    val gif: Animation?,
     val trim: Trim?,
     /** The cut-out with its outline, drawn instead of [still]; null for none. */
     val outlined: OutlinedBitmap? = null,
@@ -79,7 +86,10 @@ class Composition(val layers: List<LayerSnapshot>) : StickerClip {
 
     override fun frames(side: Int): StickerExport.FrameSet = framesEvery(side, StickerMotion.FRAME_MS)
 
-    /** Frames every [frameMs]; too heavy, the grid coarsens (fewer frames, same timing). */
+    /**
+     * Frames every [frameMs]; too heavy, the grid coarsens (fewer frames, same timing). Past
+     * [MAX_FRAME_MS] only as a last resort: a busy video layer may not fit 500 KB otherwise.
+     */
     private fun framesEvery(side: Int, frameMs: Int): StickerExport.FrameSet {
         val (starts, durations) = choreography.frames(frameMs)
         val renderer = Renderer(side)
@@ -89,9 +99,10 @@ class Composition(val layers: List<LayerSnapshot>) : StickerClip {
                 val frame = renderer.draw(starts[i])
                 IntArray(side * side).also { frame.getPixels(it, 0, side, 0, 0, side, side) }
             },
+            lastResort = frameMs > MAX_FRAME_MS,
         ) {
             val next = frameMs * 3 / 2
-            if (next <= MAX_FRAME_MS && choreography.durationMs / next >= 2) framesEvery(side, next) else null
+            if (choreography.durationMs / next >= 2) framesEvery(side, next) else null
         }
     }
 
@@ -118,7 +129,7 @@ class Composition(val layers: List<LayerSnapshot>) : StickerClip {
                 source
             }
         }
-        private val cursors = arrayOfNulls<Gif.Cursor>(layers.size)
+        private val cursors = arrayOfNulls<Animation.Cursor>(layers.size)
         private val gifFrames = layers.map { l -> l.gif?.let { Bitmap.createBitmap(it.width, it.height, Bitmap.Config.ARGB_8888) } }
 
         fun draw(t: Int): Bitmap {
@@ -128,7 +139,7 @@ class Composition(val layers: List<LayerSnapshot>) : StickerClip {
                 val bitmap = if (gif != null) {
                     val local = choreography.localMs(layer.gifLengthMs, t).toInt()
                     val index = gif.frameAt(requireNotNull(layer.trim).startMs + local)
-                    val c = cursors[i]?.takeIf { it.index <= index } ?: gif.Cursor(index).also { cursors[i] = it }
+                    val c = cursors[i]?.takeIf { it.index <= index } ?: gif.cursor(index).also { cursors[i] = it }
                     while (c.index < index) c.advance()
                     requireNotNull(gifFrames[i]).also { it.setPixels(c.canvas, 0, gif.width, 0, 0, gif.width, gif.height) }
                 } else {

@@ -5,7 +5,9 @@ transparency. Android, with a loud neo-brutalist UI.
 
 ## What it does
 
-- **Pick or share in** one or more photos, then reorder them by dragging.
+- **Pick or share in** one or more photos, GIFs or videos, then reorder them by dragging.
+- **GIFs and videos** become animated stickers: trim up to 10 s (a video's first minute is
+  offered), and use them alone or as layers in a combined sticker.
 - **Separate** (one sticker per photo) or **Combine** (all photos as layers of one sticker).
 - **Cut out** each photo:
   - **Brush:** a hard brush, 1–150 px.

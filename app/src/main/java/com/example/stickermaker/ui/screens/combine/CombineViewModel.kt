@@ -66,11 +66,11 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
             val images = session.images.value
             val loaded = images.mapIndexed { i, image ->
                 async {
-                    val mask = if (image.isGif) null else session.readMask(image)
+                    val mask = if (image.isAnimated) null else session.readMask(image)
                     var failed = false
                     val layer = withContext(Dispatchers.Default) {
                         runCatching {
-                            if (image.isGif) {
+                            if (image.isAnimated) {
                                 // A GIF layer is the whole frame, from its first kept moment.
                                 val gif = session.gif(image) ?: return@runCatching null.also { failed = true }
                                 val trim = session.trim(image)
@@ -259,7 +259,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
 
     /** Sets how the selected cut-out moves (GIF layers play instead). */
     fun setMotion(motion: StickerMotion) {
-        val layer = _state.value.selected?.takeIf { !it.isGif } ?: return
+        val layer = _state.value.selected?.takeIf { !it.isAnimated } ?: return
         if (layer.motion == motion) return
         val before = snapshot()
         layer.motion = motion
@@ -268,7 +268,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
 
     /** Turns the selected cut-out's outline on or off. */
     fun setOutline(on: Boolean) {
-        val layer = _state.value.selected?.takeIf { !it.isGif } ?: return
+        val layer = _state.value.selected?.takeIf { !it.isAnimated } ?: return
         if (layer.outline == on) return
         val before = snapshot()
         layer.outline = on
@@ -278,7 +278,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
     /** Every cut-out's outline on or off, as one step. */
     fun setOutlineAll(on: Boolean) {
         val before = snapshot()
-        _state.value.layers.filterNot { it.isGif }.forEach { it.outline = on }
+        _state.value.layers.filterNot { it.isAnimated }.forEach { it.outline = on }
         commit(before)
     }
 
@@ -291,7 +291,7 @@ class CombineViewModel(private val session: StickerSession) : ViewModel() {
      */
     private fun refreshOutlines(layers: List<Layer> = _state.value.layers) {
         layers.forEach { layer ->
-            if (!layer.outline || layer.isGif) return@forEach
+            if (!layer.outline || layer.isAnimated) return@forEach
             val thickness = layer.outlineThickness()
             if (layer.outlined?.thickness == thickness) return@forEach
             outlineJobs[layer.id]?.cancel()

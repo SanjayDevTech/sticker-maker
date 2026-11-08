@@ -50,7 +50,21 @@ coordinates.
   - **GIFs** (`editor/Gif`): our own decoder, since Android never hands out single GIF frames.
     Trimmed to ≤ 10 s, at most 25 fps, fitted into the square; too heavy for 500 KB at quality
     50 → drop every third frame and re-estimate. A 10 s 480×270 GIF takes ~5–6 s on the Pixel 9.
-  - **Clips** (`editor/StickerClip`): anything already moving (a GIF's trim, a combined
+  - **Videos** (`editor/VideoFrames`): go through exactly the GIF path. `Gif` and `VideoFrames`
+    both implement `Animation`; `SessionImage.isAnimated` covers both and `isVideo` tells them
+    apart (labels and the default trim only). On import the video's first minute is decoded
+    once with `MediaMetadataRetriever.getFramesAtIndex` (rotation applied, sound dropped) into
+    JPEGs at ≤ 512 px and ≤ 25 fps, so scrubbing and playback never seek a decoder. Runs split
+    at key frames across up to 4 decoders, with resizing and JPEG writing on a pool beside
+    them. Emulator (software decode): 10 s 720p ≈ 8 s, 60 s ≈ 42 s.
+    - Video is far busier than most GIFs. Each frame is a full still, so 500 KB goes fast:
+      videos start with a **3 s** trim (still extendable to 10 s), and below 8 fps is a
+      `lastResort` set (quality drops first). Combined stickers may also go below 8 fps,
+      but only as a last resort. Measured on a busy 720p clip: 3 s → 30 frames, 414 KB;
+      10 s → 45 frames, 470 KB.
+    - Session cleanup deletes the frames while the Save screen may still be playing them,
+      so a missing frame decodes as "keep the last one", never as a crash.
+  - **Clips** (`editor/StickerClip`): anything already moving (a GIF's or video's trim, a combined
     sticker) is a `StickerClip` of frames at 512; Save plays (`ClipPlayer`) and encodes them
     the same way. A `Composition` is the combine canvas frozen: the longest GIF sets the length
     (else the longest motion), and shorter loops stretch to repeat a whole number of times

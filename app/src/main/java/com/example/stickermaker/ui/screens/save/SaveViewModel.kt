@@ -135,7 +135,7 @@ class SaveViewModel(
                 session.images.value.map { image ->
                     async(Dispatchers.Default) {
                         runCatching {
-                            if (image.isGif) {
+                            if (image.isAnimated) {
                                 val gif = session.gif(image) ?: return@runCatching Outcome.Unreadable
                                 val trim = session.trim(image)
                                 val first = StickerExport.fitGifFrame(gif, gif.frameAt(trim.startMs), WhatsAppLimits.STICKER_PX)

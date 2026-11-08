@@ -89,7 +89,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
     val addMore = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = WhatsAppLimits.MAX_STICKERS),
     ) { uris -> session.add(uris) }
-    fun launchAddMore() = addMore.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    fun launchAddMore() = addMore.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
 
     val drag = rememberGridDragState(
         grid = gridState,
@@ -140,7 +140,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
                 EmptyState(
                     icon = R.drawable.ic_image,
                     title = "No images",
-                    message = "Pick a few photos to turn into stickers.",
+                    message = "Pick a few photos, GIFs or videos to turn into stickers.",
                     action = { ChunkyButton("Pick photos", onClick = ::launchAddMore, icon = R.drawable.ic_add, size = ChunkySize.Medium) },
                 )
             }
@@ -237,7 +237,7 @@ private fun ImageTile(
                 file = image.file,
                 modifier = Modifier.fillMaxSize().checkerboard(),
                 contentScale = ContentScale.Fit,
-                animated = image.isGif,
+                animated = image.isAnimated && !image.isVideo,
             )
         }
         StickerTag(
@@ -246,7 +246,7 @@ private fun ImageTile(
             rotation = -6f,
             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
         )
-        if (image.isGif) GifTag(Modifier.align(Alignment.BottomStart).padding(start = 4.dp, bottom = 8.dp))
+        if (image.isAnimated) GifTag(Modifier.align(Alignment.BottomStart).padding(start = 4.dp, bottom = 8.dp), video = image.isVideo)
         IconTile(
             R.drawable.ic_close,
             "Remove image $position",

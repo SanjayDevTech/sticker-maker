@@ -154,7 +154,8 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                 }
                 Text(
                     if (single) {
-                        "Drag to move; pinch or pull the yellow corner to size and turn. Pick a motion below to make it move."
+                        "Drag to move; pinch or pull the yellow corner to size and turn." +
+                            if (state.layers.first().isAnimated) "" else " Pick a motion below to make it move."
                     } else {
                         "Tap a layer to pick it. Drag to move; pinch or pull the yellow corner to size and turn. Cut-outs can move too."
                     },
@@ -178,7 +179,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                     LayerOptions(
                         layer = state.selected,
                         onFlip = if (single) vm::flip else null,
-                        allOutlined = state.layers.filterNot { it.isGif }.let { cutouts -> cutouts.isNotEmpty() && cutouts.all { it.outline } },
+                        allOutlined = state.layers.filterNot { it.isAnimated }.let { cutouts -> cutouts.isNotEmpty() && cutouts.all { it.outline } },
                         onOutline = vm::setOutline,
                         onOutlineAll = vm::setOutlineAll,
                         onMotion = vm::setMotion,
@@ -255,9 +256,9 @@ private fun LayerOptions(
             Text(if (onFlip != null) "Style" else "Layer ${layer.number}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             if (onFlip != null) IconTile(R.drawable.ic_flip, "Flip", onFlip, color = Palette.Peach)
         }
-        if (layer.isGif) {
+        if (layer.isAnimated) {
             Text(
-                "A GIF plays its trimmed part, with no outline or motion of its own. Shorter loops repeat to fill the longest GIF.",
+                "${if (layer.isVideo) "A video" else "A GIF"} plays its trimmed part, with no outline or motion of its own. Shorter loops repeat to fill the longest one.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.inkMuted,
             )
@@ -312,7 +313,7 @@ private fun LayerThumb(layer: Layer, selected: Boolean, onClick: () -> Unit, onD
             )
         }
         StickerTag("${layer.number}", Palette.Lavender, rotation = -6f, modifier = Modifier.align(Alignment.TopStart).padding(top = 8.dp))
-        if (layer.isGif) GifTag(Modifier.align(Alignment.BottomEnd).padding(end = Dimens.ShadowS + 4.dp, bottom = 4.dp))
+        if (layer.isAnimated) GifTag(Modifier.align(Alignment.BottomEnd).padding(end = Dimens.ShadowS + 4.dp, bottom = 4.dp), video = layer.isVideo)
         if (onDelete != null) {
             IconTile(
                 R.drawable.ic_close,

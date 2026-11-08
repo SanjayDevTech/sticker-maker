@@ -6,9 +6,11 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Log
 import com.example.stickermaker.editor.Composition
+import com.example.stickermaker.editor.Animation
 import com.example.stickermaker.editor.Gif
 import com.example.stickermaker.editor.MaskHistory
 import com.example.stickermaker.editor.StickerMotion
+import com.example.stickermaker.editor.VideoFrames
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,7 +25,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import java.util.UUID
@@ -41,16 +45,18 @@ enum class SessionMode {
 
 /**
  * An image picked or shared in, copied into the session folder and ready to edit. An animated
- * GIF ([isGif]) is kept as it came: it's trimmed rather than cut out.
+ * GIF or a video ([isAnimated]) is trimmed rather than cut out. A video's [file] is its first
+ * frame; its frames live in [VideoFrames] beside it.
  */
 data class SessionImage(
     val id: String,
     val file: File,
     val width: Int,
     val height: Int,
-    val isGif: Boolean = false,
-    /** A GIF's full length. */
+    val isAnimated: Boolean = false,
+    /** A GIF's or video's full length (a video's first minute at most). */
     val durationMs: Int = 0,
+    val isVideo: Boolean = false,
 )
 
 /** Where one combine layer sits (artboard units; see editor.Layer) and how it moves. */
@@ -73,13 +79,19 @@ class CombineHistory {
     val redo = ArrayDeque<CombineLayout>()
 }
 
-/** The part of a GIF that becomes the sticker, in ms. */
+/** The part of a GIF or video that becomes the sticker, in ms. */
 data class Trim(val startMs: Int, val endMs: Int) {
     val lengthMs get() = endMs - startMs
 
     companion object {
-        /** From the start, as much as WhatsApp allows. */
-        fun default(durationMs: Int) = Trim(0, minOf(durationMs, WhatsAppLimits.ANIMATED_MAX_MS))
+        /**
+         * From the start: a GIF as much as WhatsApp allows, a video [VIDEO_DEFAULT_MS] (busy
+         * frames fit 500 KB far better in a short clip; the window can still grow to 10 s).
+         */
+        fun default(durationMs: Int, video: Boolean = false) =
+            Trim(0, minOf(durationMs, if (video) VIDEO_DEFAULT_MS else WhatsAppLimits.ANIMATED_MAX_MS))
+
+        private const val VIDEO_DEFAULT_MS = 3_000
     }
 }
 
@@ -125,22 +137,24 @@ class StickerSession(context: Context) {
     /** The pack these stickers are meant for (started from a pack's "Add stickers"), if any. */
     val targetPackId = MutableStateFlow<String?>(null)
 
-    /** Each GIF's chosen part; missing means [Trim.default]. */
+    /** Each GIF's or video's chosen part; missing means [Trim.default]. */
     private val _trims = MutableStateFlow<Map<String, Trim>>(emptyMap())
     val trims: StateFlow<Map<String, Trim>> = _trims.asStateFlow()
 
-    fun trim(image: SessionImage): Trim = _trims.value[image.id] ?: Trim.default(image.durationMs)
+    fun trim(image: SessionImage): Trim = _trims.value[image.id] ?: Trim.default(image.durationMs, image.isVideo)
 
     fun setTrim(image: SessionImage, trim: Trim) = _trims.update { it + (image.id to trim) }
 
-    /** Parsed GIFs, kept for the session: frames decode on demand and reuse checkpoints. */
-    private val gifs = HashMap<String, Gif>()
+    /** Opened GIFs and videos, kept for the session: GIF frames decode on demand and reuse checkpoints. */
+    private val gifs = HashMap<String, Animation>()
 
-    /** The parsed GIF behind [image], or null if it's not one (or can't be read). Call off the main thread. */
-    fun gif(image: SessionImage): Gif? {
-        if (!image.isGif) return null
+    /** The GIF or video behind [image], or null if it's neither (or can't be read). Call off the main thread. */
+    fun gif(image: SessionImage): Animation? {
+        if (!image.isAnimated) return null
         synchronized(gifs) { gifs[image.id]?.let { return it } }
-        val gif = runCatching { Gif.parse(image.file.readBytes()) }.getOrNull() ?: return null
+        val gif = runCatching {
+            if (image.isVideo) VideoFrames.open(framesDir(image.id)) else Gif.parse(image.file.readBytes())
+        }.getOrNull() ?: return null
         return synchronized(gifs) { gifs.getOrPut(image.id) { gif } }
     }
 
@@ -216,7 +230,7 @@ class StickerSession(context: Context) {
         combineHistory = CombineHistory()
         mode.value = SessionMode.Separate
         scope.launch(maskIo) {
-            old.forEach { it.file.delete(); maskFile(it).delete() }
+            old.forEach { it.file.delete(); maskFile(it).delete(); framesDir(it.id).deleteRecursively() }
         }
     }
 
@@ -244,7 +258,10 @@ class StickerSession(context: Context) {
 
     private fun maskFile(image: SessionImage) = File(dir, "${image.id}.mask")
 
+    private fun framesDir(id: String) = File(dir, "$id.frames")
+
     private fun import(uri: Uri): SessionImage {
+        if (resolver.getType(uri)?.startsWith("video/") == true) return importVideo(uri)
         importGif(uri)?.let { return it }
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE // editor needs pixel access
@@ -262,9 +279,9 @@ class StickerSession(context: Context) {
 
     /** An animated GIF, copied as is; null for anything else (a one-frame GIF is just an image). */
     private fun importGif(uri: Uri): SessionImage? {
-        val head = resolver.openInputStream(uri)?.use { it.readNBytes(6) } ?: return null
+        val head = resolver.openInputStream(uri)?.use { it.readUpTo(6) } ?: return null
         if (!Gif.isGif(head)) return null
-        val bytes = resolver.openInputStream(uri)?.use { it.readNBytes(MAX_GIF_BYTES + 1) } ?: return null
+        val bytes = resolver.openInputStream(uri)?.use { it.readUpTo(MAX_GIF_BYTES + 1) } ?: return null
         if (bytes.size > MAX_GIF_BYTES) throw IllegalArgumentException("GIF over ${MAX_GIF_BYTES / 1024 / 1024} MB")
         val gif = Gif.parse(bytes) ?: return null
         if (gif.frameCount < 2) return null
@@ -273,7 +290,34 @@ class StickerSession(context: Context) {
         val file = File(dir, "$id.gif")
         file.writeBytes(bytes)
         synchronized(gifs) { gifs[id] = gif }
-        return SessionImage(id, file, gif.width, gif.height, isGif = true, durationMs = gif.durationMs)
+        return SessionImage(id, file, gif.width, gif.height, isAnimated = true, durationMs = gif.durationMs)
+    }
+
+    /** A video, decoded into frames (its first minute; sound dropped). */
+    private fun importVideo(uri: Uri): SessionImage {
+        val id = UUID.randomUUID().toString().take(12)
+        val frames = VideoFrames.extract({ requireNotNull(resolver.openFileDescriptor(uri, "r")) }, framesDir(id))
+        if (frames == null) {
+            framesDir(id).deleteRecursively()
+            throw IllegalArgumentException("Couldn't read any frames from $uri")
+        }
+        // The first frame stands in for the video wherever a still is shown.
+        val file = File(dir, "$id.jpg")
+        File(framesDir(id), "00000.jpg").copyTo(file, overwrite = true)
+        synchronized(gifs) { gifs[id] = frames }
+        return SessionImage(id, file, frames.width, frames.height, isAnimated = true, durationMs = frames.durationMs, isVideo = true)
+    }
+
+    /** Up to [n] bytes (fewer at the end). InputStream.readNBytes needs API 33. */
+    private fun InputStream.readUpTo(n: Int): ByteArray {
+        val out = ByteArrayOutputStream(minOf(n, 1 shl 16))
+        val buffer = ByteArray(8192)
+        while (out.size() < n) {
+            val read = read(buffer, 0, minOf(buffer.size, n - out.size()))
+            if (read < 0) break
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
     }
 
     companion object {
