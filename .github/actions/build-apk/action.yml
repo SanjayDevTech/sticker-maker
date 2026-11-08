@@ -17,9 +17,12 @@ runs:
     - uses: gradle/actions/setup-gradle@v6
 
     # Pinned in app/build.gradle.kts; installed up front so the build doesn't fetch them mid-way.
+    # `yes` answers licence prompts. It gets "Broken pipe" once sdkmanager exits, and
+    # `shell: bash` runs with pipefail, so its failure is ignored on purpose.
     - name: Install NDK and CMake
       shell: bash
-      run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.1.12297006" "cmake;3.22.1" > /dev/null
+      run: |
+        (yes 2> /dev/null || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.1.12297006" "cmake;3.22.1"
 
     # Signed with the public github-public-release key committed in the repo. The first build
     # downloads libwebp (pinned, SHA-256 checked) for the native encoder.
