@@ -15,6 +15,7 @@ transparency. Android, with a loud neo-brutalist UI.
   - **Erase / Restore:** every tool can also restore what was erased.
   - Undo is kept per image, and you can zoom to single pixels.
 - **Combine canvas:** move, scale and rotate layers, restack, flip and delete them, with undo.
+  A single photo can use it too (**Move & size**) to zoom, pan or turn it.
 - **Save:** 512×512 transparent WebP under 100 KB. The white outline is optional and off by
   default.
 - **Into WhatsApp:**
@@ -47,3 +48,15 @@ Single module, simple layers:
 
 Settings → Design kit shows every component live. Conventions and hard-won facts are in
 [CLAUDE.md](CLAUDE.md).
+
+## How it was made
+
+Built with AI assistance (Claude), directed, designed and tested by its maintainer. The commit
+trailers say so too.
+
+## License
+
+[MIT](LICENSE) © 2026 Sticker Maker contributors.
+
+Ships with libwebp (BSD 3-Clause), the Outfit font (SIL OFL 1.1), Material Symbols and the
+AndroidX/Kotlin libraries (Apache 2.0). Their full texts are in the app under Settings → Licences.
