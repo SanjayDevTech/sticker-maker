@@ -62,11 +62,6 @@ android {
             }
             signingConfig = signingConfigs.getByName("githubPublicRelease")
         }
-        debug {
-            // Same key as release, so debug and release builds install over each other and
-            // keep their packs (no uninstall when switching).
-            signingConfig = signingConfigs.getByName("githubPublicRelease")
-        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
