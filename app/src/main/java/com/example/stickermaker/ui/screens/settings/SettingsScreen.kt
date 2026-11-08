@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import android.view.inputmethod.InputMethodManager
 import android.provider.Settings
 import android.content.Intent
@@ -56,6 +57,7 @@ const val DESIGN_KIT_SHARED_KEY = "design-kit-block"
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenDesignKit: () -> Unit,
+    onOpenLicenses: () -> Unit,
 ) {
     val viewModel = appViewModel { SettingsViewModel(it.settings) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -64,6 +66,7 @@ fun SettingsScreen(
         onBack = onBack,
         onThemeMode = viewModel::setThemeMode,
         onOpenDesignKit = onOpenDesignKit,
+        onOpenLicenses = onOpenLicenses,
     )
 }
 
@@ -73,6 +76,7 @@ private fun SettingsContent(
     onBack: () -> Unit,
     onThemeMode: (ThemeMode) -> Unit,
     onOpenDesignKit: () -> Unit,
+    onOpenLicenses: () -> Unit,
 ) {
     // Small, fixed content: a scrolling Column, not a lazy list (Compose guidance for ~1–10 items).
     val scrollState = rememberScrollState()
@@ -146,6 +150,8 @@ private fun SettingsContent(
                     }
                 }
             }
+            SectionTitle("About", Modifier.staggeredEntrance(4))
+            AboutCard(onOpenLicenses, Modifier.staggeredEntrance(4).fillMaxWidth())
             Row(
                 Modifier.fillMaxWidth().padding(top = Dimens.Space24),
                 horizontalArrangement = Arrangement.Center,
@@ -189,3 +195,37 @@ private fun StickerKeyboardCard(modifier: Modifier) {
         )
     }
 }
+
+/** Who made it, where the source lives, and the licences it ships under. */
+@Composable
+private fun AboutCard(onOpenLicenses: () -> Unit, modifier: Modifier) {
+    val uriHandler = LocalUriHandler.current
+    StickerCard(modifier) {
+        Text("Made by Sticker Maker contributors", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Free and open source under the MIT License.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = AppTheme.colors.inkMuted,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Dimens.Space12),
+            modifier = Modifier.padding(top = Dimens.Space4, end = Dimens.ShadowM, bottom = Dimens.ShadowM),
+        ) {
+            ChunkyButton(
+                text = "Source",
+                onClick = { uriHandler.openUri(SOURCE_URL) },
+                icon = R.drawable.ic_code,
+                size = ChunkySize.Medium,
+                color = Palette.Lime,
+            )
+            ChunkyButton(
+                text = "Licences",
+                onClick = onOpenLicenses,
+                size = ChunkySize.Medium,
+                color = Palette.Sky,
+            )
+        }
+    }
+}
+
+private const val SOURCE_URL = "https://github.com/SanjayDevTech/sticker-maker"

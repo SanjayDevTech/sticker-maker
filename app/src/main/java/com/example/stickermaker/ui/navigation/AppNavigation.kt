@@ -30,6 +30,7 @@ import com.example.stickermaker.ui.screens.pack.PackScreen
 import com.example.stickermaker.ui.screens.save.SaveScreen
 import com.example.stickermaker.ui.screens.editor.EditorScreen
 import com.example.stickermaker.ui.screens.home.HomeScreen
+import com.example.stickermaker.ui.screens.settings.LicensesScreen
 import com.example.stickermaker.ui.screens.settings.SettingsScreen
 import com.example.stickermaker.ui.theme.Motion
 
@@ -80,6 +81,7 @@ fun AppNavigation() {
                         SettingsScreen(
                             onBack = { backStack.removeLastOrNull() },
                             onOpenDesignKit = { backStack.push(DesignKitRoute) },
+                            onOpenLicenses = { backStack.push(LicensesRoute) },
                         )
                     }
                     entry<ArrangeRoute> {
@@ -123,6 +125,9 @@ fun AppNavigation() {
                     }
                     entry<DesignKitRoute> {
                         DesignKitScreen(onBack = { backStack.removeLastOrNull() })
+                    }
+                    entry<LicensesRoute> {
+                        LicensesScreen(onBack = { backStack.removeLastOrNull() })
                     }
                 },
             )
