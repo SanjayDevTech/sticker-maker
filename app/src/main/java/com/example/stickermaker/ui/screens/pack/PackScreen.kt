@@ -122,7 +122,7 @@ fun PackScreen(packId: String, onBack: () -> Unit, onAddStickers: () -> Unit) {
     fun launchAddToWhatsApp() {
         when (val status = whatsApp) {
             WhatsApp.Status.NotInstalled -> scope.launch { toasts.show("WhatsApp isn't installed") }
-            WhatsApp.Status.Added -> scope.launch { toasts.show("Already in WhatsApp. Changes show up there on their own.") }
+            WhatsApp.Status.Added -> scope.launch { toasts.show("Already in WhatsApp. Changes show up there after WhatsApp restarts.") }
             is WhatsApp.Status.NotAdded -> try {
                 addToWhatsApp.launch(WhatsApp.addIntent(context, pack.id, pack.name, status.onlyTo))
             } catch (_: ActivityNotFoundException) {
@@ -282,7 +282,7 @@ private fun Header(pack: StickerPack, inWhatsApp: Boolean, onRename: () -> Unit,
                 else -> "Add ${pack.stickersNeeded} more for WhatsApp"
             },
             onClick = onAddToWhatsApp,
-            icon = R.drawable.ic_check,
+            icon = if (inWhatsApp) R.drawable.ic_check else R.drawable.ic_add,
             color = Palette.Lime,
             size = ChunkySize.Large,
             squiggly = pack.canAddToWhatsApp && !inWhatsApp,
