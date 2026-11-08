@@ -92,11 +92,14 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
         }
     }
 
+    // One image (from the editor's Move & size): no layers to manage.
+    val single = state.layers.size == 1
+
     Scaffold(
         containerColor = colors.canvas,
         topBar = {
             StickerTopBar(
-                title = if (state.layers.size == 1) "Move & size" else "Combine",
+                title = if (single) "Move & size" else "Combine",
                 collapsed = true,
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
                 actions = {
@@ -150,7 +153,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                     }
                 }
                 Text(
-                    if (state.layers.size == 1) {
+                    if (single) {
                         "Drag to move; pinch or pull the yellow corner to size and turn. Pick a motion below to make it move."
                     } else {
                         "Tap a layer to pick it. Drag to move; pinch or pull the yellow corner to size and turn. Cut-outs can move too."
@@ -159,7 +162,8 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                     color = colors.inkMuted,
                 )
                 if (state.layers.isNotEmpty()) {
-                    LayerStrip(
+                    // One image: no stack to manage; Flip moves into the options below.
+                    if (!single) LayerStrip(
                         state = state,
                         vm = vm,
                         onDelete = { layer ->
@@ -173,6 +177,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
                     )
                     LayerOptions(
                         layer = state.selected,
+                        onFlip = if (single) vm::flip else null,
                         allOutlined = state.layers.filterNot { it.isGif }.let { cutouts -> cutouts.isNotEmpty() && cutouts.all { it.outline } },
                         onOutline = vm::setOutline,
                         onOutlineAll = vm::setOutlineAll,
@@ -232,10 +237,12 @@ private fun LayerStrip(state: CombineUiState, vm: CombineViewModel, onDelete: (L
 /**
  * The picked layer's own look: a cut-out gets an outline and a motion picker; a GIF just
  * plays. "All" outlines every cut-out at once (or clears them when they all have one).
+ * With [onFlip] (a lone layer, so no layer strip) the header carries Flip, and "All" is moot.
  */
 @Composable
 private fun LayerOptions(
     layer: Layer?,
+    onFlip: (() -> Unit)?,
     allOutlined: Boolean,
     onOutline: (Boolean) -> Unit,
     onOutlineAll: (Boolean) -> Unit,
@@ -244,7 +251,10 @@ private fun LayerOptions(
     if (layer == null) return
     val colors = AppTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
-        Text("Layer ${layer.number}", style = MaterialTheme.typography.titleLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (onFlip != null) "Style" else "Layer ${layer.number}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            if (onFlip != null) IconTile(R.drawable.ic_flip, "Flip", onFlip, color = Palette.Peach)
+        }
         if (layer.isGif) {
             Text(
                 "A GIF plays its trimmed part, with no outline or motion of its own. Shorter loops repeat to fill the longest GIF.",
@@ -261,13 +271,15 @@ private fun LayerOptions(
                     label = { if (it) "White outline" else "None" },
                     modifier = Modifier.weight(1f),
                 )
-                ChunkyButton(
-                    text = if (allOutlined) "None on all" else "On all",
-                    onClick = { onOutlineAll(!allOutlined) },
-                    color = Palette.Sky,
-                    size = ChunkySize.Medium,
-                    modifier = Modifier.padding(end = Dimens.ShadowS),
-                )
+                if (onFlip == null) {
+                    ChunkyButton(
+                        text = if (allOutlined) "None on all" else "On all",
+                        onClick = { onOutlineAll(!allOutlined) },
+                        color = Palette.Sky,
+                        size = ChunkySize.Medium,
+                        modifier = Modifier.padding(end = Dimens.ShadowS),
+                    )
+                }
             }
             SectionTitle("Motion")
             // The picker previews motions on a sticker-shaped square of this layer.
