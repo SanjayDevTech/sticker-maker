@@ -96,7 +96,7 @@ fun CombineScreen(onBack: () -> Unit, onSave: () -> Unit) {
         containerColor = colors.canvas,
         topBar = {
             StickerTopBar(
-                title = if (state.layers.size == 1) "Arrange" else "Combine",
+                title = if (state.layers.size == 1) "Move & size" else "Combine",
                 collapsed = true,
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
                 actions = {

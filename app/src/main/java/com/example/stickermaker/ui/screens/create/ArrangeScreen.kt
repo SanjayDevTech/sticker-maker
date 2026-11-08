@@ -109,7 +109,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
         containerColor = colors.canvas,
         topBar = {
             StickerTopBar(
-                title = "Arrange",
+                title = "Your photos",
                 collapsed = collapsed,
                 navigation = { IconTile(R.drawable.ic_arrow_back, "Back", onBack) },
             )
@@ -163,7 +163,7 @@ fun ArrangeScreen(onBack: () -> Unit, onCutOut: () -> Unit) {
         ) {
             item(key = "header", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimens.Space8), modifier = Modifier.padding(bottom = Dimens.Space8)) {
-                    Text("Arrange", style = MaterialTheme.typography.displayMedium)
+                    Text("Your photos", style = MaterialTheme.typography.displayMedium)
                     if (images.size > 1) {
                         SegmentedPicker(
                             options = SessionMode.entries,

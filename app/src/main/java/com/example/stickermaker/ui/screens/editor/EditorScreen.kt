@@ -131,10 +131,10 @@ fun EditorScreen(onBack: () -> Unit, onCombine: () -> Unit, onSave: () -> Unit) 
             }
             if (count > 1) Filmstrip(state.images, state.index, vm::select)
             if (count == 1) {
-                // One image: save it auto-fitted, or arrange it first (size, turn, flip, motion).
+                // One image: save it auto-fitted, or move & size it first (also turn, flip, motion).
                 Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Space12)) {
                     ChunkyButton(
-                        text = "Arrange",
+                        text = "Move & size",
                         onClick = {
                             vm.saveCurrent()
                             vm.useMode(SessionMode.Combine)
