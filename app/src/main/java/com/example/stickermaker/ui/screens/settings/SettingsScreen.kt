@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import com.example.stickermaker.appViewModel
 import com.example.stickermaker.data.ThemeMode
 import com.example.stickermaker.ui.components.BrutalSurface
+import com.example.stickermaker.ui.components.EasterEgg
 import com.example.stickermaker.ui.components.IconTile
 import com.example.stickermaker.ui.components.SectionTitle
 import com.example.stickermaker.ui.components.SegmentedPicker
@@ -180,7 +181,7 @@ private fun SettingsContent(
                 Modifier.fillMaxWidth().padding(top = Dimens.Space24),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                StickerTag("v${rememberVersionName()}", Palette.Lime, rotation = 3f)
+                EasterEgg { StickerTag("v${rememberVersionName()}", Palette.Lime, rotation = 3f) }
             }
         }
     }

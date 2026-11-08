@@ -53,6 +53,7 @@ import com.example.stickermaker.ui.components.ChunkyButton
 import com.example.stickermaker.ui.components.ChunkySize
 import com.example.stickermaker.ui.components.EmptyState
 import com.example.stickermaker.ui.components.IconTile
+import com.example.stickermaker.ui.components.EasterEgg
 import com.example.stickermaker.ui.components.LoadRing
 import com.example.stickermaker.ui.components.SectionTitle
 import com.example.stickermaker.ui.components.SegmentedPicker
@@ -224,6 +225,8 @@ fun DesignKitScreen(onBack: () -> Unit) {
                     StickerTag("new", Palette.Yellow)
                     StickerTag("hot", Palette.Coral, rotation = 3f)
                     StickerTag("beta", Palette.Mint, rotation = -2f)
+                    // EasterEgg: a random wiggle, bounce, spin… on each tap.
+                    EasterEgg { StickerTag("tap me", Palette.Pink, rotation = 4f) }
                 }
             }
 

@@ -6,6 +6,7 @@ import com.example.stickermaker.whatsapp.WhatsApp
 import androidx.compose.ui.platform.LocalContext
 import com.example.stickermaker.ui.components.showUndo
 import com.example.stickermaker.ui.components.checkerboard
+import com.example.stickermaker.ui.components.EasterEgg
 import com.example.stickermaker.ui.components.SkeletonBlock
 import com.example.stickermaker.ui.components.FileImage
 import com.example.stickermaker.data.StickerPack
@@ -143,12 +144,9 @@ fun HomeScreen(
                     Text("Make it", style = MaterialTheme.typography.displayLarge)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("stick.", style = MaterialTheme.typography.displayLarge)
-                        StickerTag(
-                            "no border!",
-                            Palette.Pink,
-                            rotation = 8f,
-                            modifier = Modifier.offset(x = (-6).dp, y = (-10).dp),
-                        )
+                        EasterEgg(Modifier.offset(x = (-6).dp, y = (-10).dp)) {
+                            StickerTag("no border!", Palette.Pink, rotation = 8f)
+                        }
                     }
                 }
             }
