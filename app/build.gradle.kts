@@ -60,8 +60,6 @@ android {
             optimization {
                 enable = true
             }
-            // Debug signing so `installRelease` works locally until a real
-            // keystore exists. Replace before shipping.
             signingConfig = signingConfigs.getByName("githubPublicRelease")
         }
     }
@@ -94,6 +92,17 @@ android {
 baselineProfile {
     // Also generate a startup profile so R8 lays out startup classes in the primary dex.
     dexLayoutOptimization = true
+}
+
+// The profile is recorded on "nonMinifiedRelease", a copy of release the plugin adds. It inherits
+// `optimization`, so R8 renamed every class there and the profile came out in names (Lp4;) the
+// real release build doesn't have: Android ignored ~99% of it. Recorded unminified, R8 maps the
+// profile onto the release build's own names when it builds release.
+androidComponents {
+    beforeVariants(selector().withBuildType("nonMinifiedRelease")) {
+        it.isMinifyEnabled = false
+        it.shrinkResources = false
+    }
 }
 
 dependencies {
